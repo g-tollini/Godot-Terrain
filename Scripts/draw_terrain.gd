@@ -74,6 +74,12 @@ class_name DrawTerrainMesh extends CompositorEffect
 ## Additive light adjustment
 @export var ambient_light : Color = Color.DIM_GRAY
 
+@export_group("Heightmap Settings")
+## Resizing not handled
+@export var heightmap_texture_width : int = 512 # could use side_length but then we would have to handle recreating the textures when the value changes
+@export var update_heightmap : bool = true
+## Sample the Heightmap instead of computing the noise in the vertex shader
+@export var vertex_use_heightmap : bool = true # use heightmap texture in vertex shader
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -95,11 +101,99 @@ var p_wire_index_array : RID
 var p_shader : RID
 var p_wire_shader : RID
 var clear_colors := PackedColorArray([Color.DARK_BLUE])
+var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
+var heightmap_rd : RenderingDevice
+var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device
+var compute_heightmap_shader : RID
+
+func init_gpu():
+	if rd == null:
+		rd = RenderingServer.get_rendering_device()
+		
+	if heightmap_rd == null:
+		heightmap_rd = RenderingServer.create_local_rendering_device() # local render device that runs the heightmap compute shader
+	
+	# Heightmap texture format
+	var heightmap_tex_format = RDTextureFormat.new()
+	heightmap_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
+	heightmap_tex_format.width = heightmap_texture_width
+	heightmap_tex_format.height = heightmap_texture_width
+	heightmap_tex_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_SNORM # noise values in -1 ; 1
+	heightmap_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
+	
+	# Creating the textures in the render devices
+	# One for the compute shader (local) rendering device
+	if heightmap_compute_rdtex.is_valid():
+		heightmap_rd.free_rid(heightmap_compute_rdtex)
+	heightmap_compute_rdtex = heightmap_rd.texture_create(heightmap_tex_format, RDTextureView.new())
+	
+	# One for the main rendering device (the one rendering the terrain)
+	if heightmap_render_rdtex.is_valid():
+		heightmap_rd.free_rid(heightmap_render_rdtex)
+	heightmap_render_rdtex = rd.texture_create(heightmap_tex_format, RDTextureView.new())
+
+
+func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffer : Array):
+	if local_rd == null:
+		push_error("Local RenderingDevice provided to compute_heightmap is null")
+		return
+		
+	if !local_rd.texture_is_valid(local_rd_texture):
+		push_error("RD Texture provided to compute_heightmap is invalid for the given RenderingDevice")
+		return
+	
+	# Heightmap compute shader
+	var compute_heightmap_shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
+	var shader_file = load(compute_heightmap_shader_path)
+	
+	if shader_file.get_class() != "RDShaderFile":
+		push_error("Shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+
+	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
+	if compute_heightmap_shader.is_valid():
+		local_rd.free_rid(compute_heightmap_shader)
+	compute_heightmap_shader = local_rd.shader_create_from_spirv(shader_spirv)
+		
+	# Uniforms
+	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
+	var p_uniform_buffer : RID = local_rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
+	
+	var uniform := RDUniform.new()
+	
+	# The gpu needs to know the layout of the uniform variables, even though we have many variables here on the cpu, they're all in one uniform buffer, and so there is technically only one shader uniform
+	uniform.binding = 0
+	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
+	uniform.add_id(p_uniform_buffer)
+		
+	var heightmap_uniform := RDUniform.new()
+	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	heightmap_uniform.binding = 1
+	heightmap_uniform.add_id(local_rd_texture)
+
+	var compute_heightmap_uniform_set = local_rd.uniform_set_create([uniform, heightmap_uniform], compute_heightmap_shader, 0)
+	var compute_heightmap_pipeline = local_rd.compute_pipeline_create(compute_heightmap_shader)
+	
+	var compute_list := local_rd.compute_list_begin()
+	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_heightmap_pipeline)
+	local_rd.compute_list_bind_uniform_set(compute_list, compute_heightmap_uniform_set, 0)
+	
+	local_rd.compute_list_dispatch(compute_list, heightmap_texture_width / 8, heightmap_texture_width / 8, 1)
+	local_rd.compute_list_end()
+
+	local_rd.submit()
+	local_rd.sync() # could delay this to avoid freezing the frame
+
+	# Retrieve processed data.
+	var output_bytes := local_rd.texture_get_data(local_rd_texture, 0)
+	rd.texture_update(heightmap_render_rdtex, 0, output_bytes) # passing a texture from a RenderingDevice to another requires to get the data back on the cpu (it seems)
+
+	var heightmap_image := Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBA8, output_bytes)
+	heightmap_image.save_png("res://heightmap.png") # just to see it
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
 	
-	rd = RenderingServer.get_rendering_device()
+	init_gpu()
 
 	# Gets whatever light source is in the scene, compositor effects are resources not nodes and so we need to do some jank stuff to get access to the node scene tree
 	var tree := Engine.get_main_loop() as SceneTree
@@ -254,6 +348,9 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if not enabled: return
 	if _effect_callback_type != effect_callback_type: return
 	
+	if rd == null:
+		init_gpu()
+	
 	var render_scene_buffers : RenderSceneBuffersRD = render_data.get_render_scene_buffers()
 	var render_scene_data : RenderSceneData = render_data.get_render_scene_data()
 	
@@ -336,8 +433,11 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(ambient_light.g)
 	buffer.push_back(ambient_light.b)
 	buffer.push_back(1.0)
+	buffer.push_back(vertex_use_heightmap)
+	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
+	buffer.push_back(1.0)
+	buffer.push_back(1.0)
 	
-
 	# All of our settings are stored in a single uniform buffer, certainly not the best decision, but it's easy to work with
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
 	var p_uniform_buffer : RID = rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
@@ -350,6 +450,18 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	uniform.uniform_type = rd.UNIFORM_TYPE_UNIFORM_BUFFER
 	uniform.add_id(p_uniform_buffer)
 	uniforms.push_back(uniform)
+	
+	var heightmap_sampler_state := RDSamplerState.new()
+	heightmap_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	heightmap_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	var heightmap_sampler = rd.sampler_create(heightmap_sampler_state)
+	
+	var heightmap_uniform := RDUniform.new()
+	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	heightmap_uniform.binding = 1
+	heightmap_uniform.add_id(heightmap_sampler)
+	heightmap_uniform.add_id(heightmap_render_rdtex)
+	uniforms.push_back(heightmap_uniform)
 	
 	# Currently we just free the previously instantiated uniform set and then make a new one, ideally this is only done when the uniform variables change
 	if p_render_pipeline_uniform_set.is_valid():
@@ -380,6 +492,10 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	rd.draw_list_end()
 
 	rd.draw_command_end_label()
+	
+	if update_heightmap:
+		update_heightmap = false
+		compute_heightmap(heightmap_rd, heightmap_compute_rdtex, buffer)
 
 
 func _notification(what):
@@ -429,7 +545,12 @@ const source_vertex = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
+			bool _UseHeightmap;
+			float _MeshSize;
 		};
+		
+		// Heightmap
+		layout(set = 0, binding = 1) uniform sampler2D heightmap;
 		
 		// This is the vertex data layout that we defined in initialize_render after line 198
 		layout(location = 0) in vec3 a_Position;
@@ -581,9 +702,18 @@ const source_vertex = "
 
 			// Initial noise sample position offset and scaled by uniform variables
 			vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+			
+			// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+			// to 0.5 * _MeshSize * vec3(1, 0, 1)
+			vec2 pos_min_xz = -0.5 * _MeshSize * vec2(1);
+			vec2 uv = (pos.xz - pos_min_xz) / _MeshSize;
 
 			// The fractional brownian motion
-			vec3 n = fbm(noise_pos.xz);
+			vec3 n;
+			if (_UseHeightmap)
+				n = texture(heightmap, uv).xyz;
+			else
+				n = fbm(noise_pos.xz);
 
 			// Adjust height of the vertex by fbm result scaled by final desired amplitude
 			pos.y += _TerrainHeight * n.x + _TerrainHeight - _Offset.y;
@@ -620,6 +750,8 @@ const source_fragment = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
+			bool _UseHeightmap;
+			float _MeshSize;
 		};
 		
 		// These are the variables that we expect to receive from the vertex shader
@@ -822,6 +954,8 @@ const source_wire_fragment = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
+			bool _UseHeightmap;
+			float _MeshSize;
 		};
 		
 		layout(location = 2) in vec4 a_Color;
