@@ -80,6 +80,7 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export var update_heightmap : bool = true
 ## Sample the Heightmap instead of computing the noise in the vertex shader
 @export var vertex_use_heightmap : bool = true # use heightmap texture in vertex shader
+@export var fragment_use_heightmap : bool = true # use heightmap texture in fragment shader
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -118,7 +119,7 @@ func init_gpu():
 	heightmap_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
 	heightmap_tex_format.width = heightmap_texture_width
 	heightmap_tex_format.height = heightmap_texture_width
-	heightmap_tex_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_SNORM # noise values in -1 ; 1
+	heightmap_tex_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT # DATA_FORMAT_R8G8B8A8_UNORM is not precise enough
 	heightmap_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	
 	# Creating the textures in the render devices
@@ -194,7 +195,7 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 
 	# Write texture to a file just to see it
 	var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-	var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBA8, output_bytes)
+	var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 	heightmap_image.save_png("res://heightmap.png")
 
 func _init():
@@ -441,9 +442,10 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(ambient_light.b)
 	buffer.push_back(1.0)
 	buffer.push_back(vertex_use_heightmap)
+	buffer.push_back(fragment_use_heightmap)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(1.0)
-	buffer.push_back(1.0)
+
 	
 	# All of our settings are stored in a single uniform buffer, certainly not the best decision, but it's easy to work with
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
@@ -461,6 +463,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	var heightmap_sampler_state := RDSamplerState.new()
 	heightmap_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
 	heightmap_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	heightmap_sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
 	var heightmap_sampler = rd.sampler_create(heightmap_sampler_state)
 	
 	var heightmap_uniform := RDUniform.new()
@@ -552,7 +555,8 @@ const source_vertex = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
-			bool _UseHeightmap;
+			bool _VertexUseHeightmap;
+			bool _FragmentUseHeightmap;
 			float _MeshSize;
 		};
 		
@@ -717,8 +721,8 @@ const source_vertex = "
 
 			// The fractional brownian motion
 			vec3 n;
-			if (_UseHeightmap)
-				n = texture(heightmap, uv).xyz;
+			if (_VertexUseHeightmap)
+				n = 2 * (texture(heightmap, uv).xyz - vec3(0.5));
 			else
 				n = fbm(noise_pos.xz);
 
@@ -757,9 +761,13 @@ const source_fragment = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
-			bool _UseHeightmap;
+			bool _VertexUseHeightmap;
+			bool _FragmentUseHeightmap;
 			float _MeshSize;
 		};
+		
+		// Heightmap
+		layout(set = 0, binding = 1) uniform sampler2D heightmap;
 		
 		// These are the variables that we expect to receive from the vertex shader
 		layout(location = 2) in vec4 a_Color;
@@ -905,8 +913,18 @@ const source_fragment = "
 			// Recalculate initial noise sampling position same as vertex shader
 			vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
 
+			// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+			// to 0.5 * _MeshSize * vec3(1, 0, 1)
+			vec2 pos_min_xz = -0.5 * _MeshSize * vec2(1);
+			vec2 uv = (pos.xz - pos_min_xz) / _MeshSize;
+			
 			// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
-			vec3 n = _TerrainHeight * fbm(noise_pos.xz);
+			vec3 n;
+			if (_FragmentUseHeightmap) // even when using the heightmap for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
+				n = 2 * (texture(heightmap, uv).xyz - vec3(0.5));
+			else
+				n = fbm(noise_pos.xz);
+			n *= _TerrainHeight;
 
 			// To more easily customize the color slope blending this is a separate normal vector with its horizontal gradients significantly reduced so the normal points upwards more
 			vec3 slope_normal = normalize(vec3(-n.y, 1, -n.z) * vec3(_SlopeDamping, 1, _SlopeDamping));
@@ -961,9 +979,13 @@ const source_wire_fragment = "
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
 			vec4 _AmbientLight;
-			bool _UseHeightmap;
+			bool _VertexUseHeightmap;
+			bool _FragmentUseHeightmap;
 			float _MeshSize;
 		};
+		
+		// Heightmap
+		layout(set = 0, binding = 1) uniform sampler2D heightmap;
 		
 		layout(location = 2) in vec4 a_Color;
 		
