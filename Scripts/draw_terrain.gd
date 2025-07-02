@@ -122,15 +122,24 @@ func init_gpu():
 	heightmap_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	
 	# Creating the textures in the render devices
-	# One for the compute shader (local) rendering device
-	if heightmap_compute_rdtex.is_valid():
-		heightmap_rd.free_rid(heightmap_compute_rdtex)
-	heightmap_compute_rdtex = heightmap_rd.texture_create(heightmap_tex_format, RDTextureView.new())
-	
 	# One for the main rendering device (the one rendering the terrain)
 	if heightmap_render_rdtex.is_valid():
 		heightmap_rd.free_rid(heightmap_render_rdtex)
 	heightmap_render_rdtex = rd.texture_create(heightmap_tex_format, RDTextureView.new())
+	
+	# One for the compute shader (local) rendering device
+	# This one is actually an alias for the one above that can be used in the local render device
+	if heightmap_compute_rdtex.is_valid():
+		heightmap_rd.free_rid(heightmap_compute_rdtex)
+	heightmap_compute_rdtex = heightmap_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
+		heightmap_tex_format.format,
+		heightmap_tex_format.samples,
+		heightmap_tex_format.usage_bits,
+		rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, heightmap_render_rdtex, 0),
+		heightmap_tex_format.width,
+		heightmap_tex_format.height,
+		heightmap_tex_format.depth,
+		heightmap_tex_format.array_layers)
 
 
 func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffer : Array):
@@ -183,12 +192,10 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 	local_rd.submit()
 	local_rd.sync() # could delay this to avoid freezing the frame
 
-	# Retrieve processed data.
-	var output_bytes := local_rd.texture_get_data(local_rd_texture, 0)
-	rd.texture_update(heightmap_render_rdtex, 0, output_bytes) # passing a texture from a RenderingDevice to another requires to get the data back on the cpu (it seems)
-
-	var heightmap_image := Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBA8, output_bytes)
-	heightmap_image.save_png("res://heightmap.png") # just to see it
+	# Write texture to a file just to see it
+	var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBA8, output_bytes)
+	heightmap_image.save_png("res://heightmap.png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
