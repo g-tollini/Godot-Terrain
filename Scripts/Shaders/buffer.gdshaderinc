@@ -23,4 +23,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _FrequencyVarianceUpperBound;
 	float _SlopeDamping;
 	vec4 _AmbientLight;
+	bool _VertexUseHeightmap;
+	bool _FragmentUseHeightmap;
+	float _MeshSize;
 };

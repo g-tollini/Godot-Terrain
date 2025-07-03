@@ -7,6 +7,9 @@
 layout(set = 0, binding = 1) uniform sampler2D low_slope_texture;
 layout(set = 0, binding = 2) uniform sampler2D high_slope_texture;
 
+// Heightmap
+layout(set = 0, binding = 3) uniform sampler2D heightmap;
+
 // These are the variables that we expect to receive from the vertex shader
 layout(location = 2) in vec4 a_Color;
 layout(location = 3) in vec3 pos;
@@ -19,8 +22,25 @@ void main() {
 	// Recalculate initial noise sampling position same as vertex shader
 	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
 
+	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+	// to 0.5 * _MeshSize * vec3(1, 0, 1)
+	vec2 pos_min_xz = -0.5 * _MeshSize * vec2(1);
+	vec2 uv = (pos.xz - pos_min_xz) / _MeshSize;
+	float mul0 = 16;
+	float mul1 = 32;
+	float mul2 = 64;
+	
 	// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
-	vec3 n = _TerrainHeight * fbm(noise_pos.xz);
+	vec3 n;
+	if (_FragmentUseHeightmap) // even when using the heightmap for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
+		n = 2 * (texture(heightmap, uv).xyz - vec3(0.5)) + 
+		  1 / (mul2) * 2 * (texture(heightmap, mul0 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+		+ 1 / (mul2) * 2 * (texture(heightmap, mul0 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
+		+ 1 / sqrt(mul1) * 2 * (texture(heightmap, mul1 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using sqrt so that the amplitude does not decay too much
+		+ 1 / sqrt(mul1) * 2 * (texture(heightmap, mul2 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+	else
+		n = fbm(noise_pos.xz);
+	n *= _TerrainHeight;
 
 	// To more easily customize the color slope blending this is a separate normal vector with its horizontal gradients significantly reduced so the normal points upwards more
 	vec3 slope_normal = normalize(vec3(-n.y, 1, -n.z) * vec3(_SlopeDamping, 1, _SlopeDamping));
