@@ -1,10 +1,24 @@
 # Godot Terrain Generator
 
+Acerola's Dirt Jam
+
+## What's in this branch
+
+Triplanar texturing. One texture for low slopes, one for high slopes. 
+
+![texturing](doc/texturing.png)
+
+## What is there to learn
+
+Not much... The formula for blending the two samples of the high slope texture (along planes x and z) gives more intensity to the sampling from which the surface normal is closest
+
+---
+
 by Acerola
 
 Implements simple perlin noise based fractional brownian motion as a Godot compositor effect for use as a base or reference in my event [Dirt Jam](https://itch.io/jam/acerola-dirt-jam/).
 
-![example](./example.png)
+![example](doc/example.png)
 
 ## How To Use
 
