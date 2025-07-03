@@ -63,9 +63,15 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export var slope_threshold : Vector2 = Vector2(0.9, 0.98)
 
 ## Color of flatter areas of terrain
+@export var low_slope_texture : Texture2D
+@export var low_slope_texture_ST : Vector4 # ST means scale (xy) translation (zw)
+
 @export var low_slope_color : Color = Color(0.83, 0.88, 0.94)
 
 ## Color of steeper areas of terrain
+@export var high_slope_texture : Texture2D
+@export var high_slope_texture_ST : Vector4
+
 @export var high_slope_color : Color = Color(0.16, 0.1, 0.1)
 
 
@@ -112,6 +118,12 @@ var p_wire_index_array : RID
 var p_shader : RID
 var p_wire_shader : RID
 var clear_colors := PackedColorArray([Color.DARK_BLUE])
+
+var low_slope_rdtex : RID
+var high_slope_rdtex : RID
+var low_slope_texture_copied_to_gpu : RID
+var high_slope_texture_copied_to_gpu : RID
+
 var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
 var heightmap_rd : RenderingDevice
 var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device
@@ -123,6 +135,22 @@ func init_gpu():
 		
 	if heightmap_rd == null:
 		heightmap_rd = RenderingServer.create_local_rendering_device() # local render device that runs the heightmap compute shader
+	
+	# Creating 2 textures on the gpu for the flat / steep areas
+	# Data will be copeid to these textures in _render_callback
+	var slope_tex_format = RDTextureFormat.new()
+	slope_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
+	slope_tex_format.width = 1024
+	slope_tex_format.height = 1024
+	slope_tex_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+	slope_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT
+	
+	# Low slope
+	low_slope_rdtex = rd.texture_create(slope_tex_format, RDTextureView.new())
+	
+	# High slope
+	high_slope_rdtex = rd.texture_create(slope_tex_format, RDTextureView.new())
+	
 	
 	# Heightmap texture format
 	var heightmap_tex_format = RDTextureFormat.new()
@@ -221,8 +249,6 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
-	
-	init_gpu()
 
 	# Gets whatever light source is in the scene, compositor effects are resources not nodes and so we need to do some jank stuff to get access to the node scene tree
 	var tree := Engine.get_main_loop() as SceneTree
@@ -450,10 +476,18 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(low_slope_color.g)
 	buffer.push_back(low_slope_color.b)
 	buffer.push_back(1.0)
+	buffer.push_back(low_slope_texture_ST.x)
+	buffer.push_back(low_slope_texture_ST.y)
+	buffer.push_back(low_slope_texture_ST.z)
+	buffer.push_back(low_slope_texture_ST.w)
 	buffer.push_back(high_slope_color.r)
 	buffer.push_back(high_slope_color.g)
 	buffer.push_back(high_slope_color.b)
 	buffer.push_back(1.0)
+	buffer.push_back(high_slope_texture_ST.x)
+	buffer.push_back(high_slope_texture_ST.y)
+	buffer.push_back(high_slope_texture_ST.z)
+	buffer.push_back(high_slope_texture_ST.w)
 	buffer.push_back(frequency_variance.x)
 	buffer.push_back(frequency_variance.y)
 	buffer.push_back(slope_damping)
@@ -481,6 +515,45 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	uniform.add_id(p_uniform_buffer)
 	uniforms.push_back(uniform)
 	
+	# Texturing
+	if not low_slope_texture or not high_slope_texture:
+		push_error("Unassigned textures")
+		return
+	
+	# Sampler object for both textures
+	var slope_tex_sampler_state := RDSamplerState.new()
+	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	var slope_tex_sampler = rd.sampler_create(slope_tex_sampler_state)
+	
+	# Binding the textures created on the gpu in init_gpu() to the shader
+	var low_slope_tex_uniform := RDUniform.new()
+	low_slope_tex_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	low_slope_tex_uniform.binding = 1
+	low_slope_tex_uniform.add_id(slope_tex_sampler)
+	low_slope_tex_uniform.add_id(low_slope_rdtex)
+	uniforms.push_back(low_slope_tex_uniform)
+	
+	var high_slope_tex_uniform := RDUniform.new()
+	high_slope_tex_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	high_slope_tex_uniform.binding = 2
+	high_slope_tex_uniform.add_id(slope_tex_sampler)
+	high_slope_tex_uniform.add_id(high_slope_rdtex)
+	uniforms.push_back(high_slope_tex_uniform)
+	
+	# Updating texture data when a change is made in the editor
+	if low_slope_texture_copied_to_gpu != low_slope_texture.get_rid() and low_slope_rdtex.is_valid():
+		var image = low_slope_texture.get_image()
+		image.convert(Image.FORMAT_RGBA8)
+		rd.texture_update(low_slope_rdtex, 0, image.get_data())
+		low_slope_texture_copied_to_gpu = low_slope_texture.get_rid()
+		
+	if high_slope_texture_copied_to_gpu != high_slope_texture.get_rid() and high_slope_rdtex.is_valid():
+		var image = high_slope_texture.get_image()
+		image.convert(Image.FORMAT_RGBA8)
+		rd.texture_update(high_slope_rdtex, 0, image.get_data())
+		high_slope_texture_copied_to_gpu = high_slope_texture.get_rid()
+
 	var heightmap_sampler_state := RDSamplerState.new()
 	heightmap_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
 	heightmap_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
@@ -489,7 +562,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	var heightmap_uniform := RDUniform.new()
 	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-	heightmap_uniform.binding = 1
+	heightmap_uniform.binding = 3
 	heightmap_uniform.add_id(heightmap_sampler)
 	heightmap_uniform.add_id(heightmap_render_rdtex)
 	uniforms.push_back(heightmap_uniform)
@@ -571,7 +644,9 @@ const source_vertex = "
 			float _Lacunarity;
 			vec2 _SlopeRange;
 			vec4 _LowSlopeColor;
+			vec4 _LowSlopeTexST;
 			vec4 _HighSlopeColor;
+			vec4 _HighSlopeTexST;
 			float _FrequencyVarianceLowerBound;
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
@@ -582,7 +657,7 @@ const source_vertex = "
 		};
 		
 		// Heightmap
-		layout(set = 0, binding = 1) uniform sampler2D heightmap;
+		layout(set = 0, binding = 3) uniform sampler2D heightmap;
 		
 		// This is the vertex data layout that we defined in initialize_render after line 198
 		layout(location = 0) in vec3 a_Position;
@@ -777,7 +852,9 @@ const source_fragment = "
 			float _Lacunarity;
 			vec2 _SlopeRange;
 			vec4 _LowSlopeColor;
+			vec4 _LowSlopeTexST;
 			vec4 _HighSlopeColor;
+			vec4 _HighSlopeTexST;
 			float _FrequencyVarianceLowerBound;
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
@@ -787,8 +864,12 @@ const source_fragment = "
 			float _MeshSize;
 		};
 		
+		// Texturing
+		layout(set = 0, binding = 1) uniform sampler2D low_slope_texture;
+		layout(set = 0, binding = 2) uniform sampler2D high_slope_texture;
+
 		// Heightmap
-		layout(set = 0, binding = 1) uniform sampler2D heightmap;
+		layout(set = 0, binding = 3) uniform sampler2D heightmap;
 		
 		// These are the variables that we expect to receive from the vertex shader
 		layout(location = 2) in vec4 a_Color;
@@ -960,11 +1041,27 @@ const source_fragment = "
 			// Use the slope of the above normal to create the blend value between the two terrain colors
 			float material_blend_factor = smoothstep(_SlopeRange.x, _SlopeRange.y, 1 - slope_normal.y);
 
-			// Blend between the two terrain colors
-			vec4 albedo = mix(_LowSlopeColor, _HighSlopeColor, vec4(material_blend_factor));
-
 			// This is the actual surface normal vector
 			vec3 normal = normalize(vec3(-n.y, 1, -n.z));
+
+			// Texturing
+			// Horizontal
+			vec2 uv_y = 0.001 * pos.xz * _LowSlopeTexST.xy + _LowSlopeTexST.zw;
+			// Vertical
+			vec2 uv_x = -0.001 * pos.zy * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+			vec2 uv_z = -0.001 * pos.xy * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+			
+			vec4 lowSlopeTexSample = texture(low_slope_texture, uv_y);
+			vec4 highSlopeTexSample_x = texture(high_slope_texture, uv_x);
+			vec4 highSlopeTexSample_z = texture(high_slope_texture, uv_z);
+			
+			float nx = abs(normal.x);
+			float nz = abs(normal.z);
+			float highSlopeTex_blend = nz / (nx + nz);
+			vec4 highSlopeTexSample = mix(highSlopeTexSample_x, highSlopeTexSample_z, highSlopeTex_blend);
+			
+			// Blend between the two terrain colors
+			vec4 albedo = mix(lowSlopeTexSample * _LowSlopeColor, highSlopeTexSample * _HighSlopeColor, vec4(material_blend_factor));
 
 			// Lambertian diffuse, negative dot product values clamped off because negative light doesn't exist
 			float ndotl = clamp(dot(_LightDirection, normal), 0, 1);
@@ -1002,7 +1099,9 @@ const source_wire_fragment = "
 			float _Lacunarity;
 			vec2 _SlopeRange;
 			vec4 _LowSlopeColor;
+			vec4 _LowSlopeTexST;
 			vec4 _HighSlopeColor;
+			vec4 _HighSlopeTexST;
 			float _FrequencyVarianceLowerBound;
 			float _FrequencyVarianceUpperBound;
 			float _SlopeDamping;
@@ -1012,8 +1111,6 @@ const source_wire_fragment = "
 			float _MeshSize;
 		};
 		
-		// Heightmap
-		layout(set = 0, binding = 1) uniform sampler2D heightmap;
 		
 		layout(location = 2) in vec4 a_Color;
 		

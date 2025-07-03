@@ -19,7 +19,9 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _Lacunarity;
 	vec2 _SlopeRange;
 	vec4 _LowSlopeColor;
+	vec4 _LowSlopeTexST;
 	vec4 _HighSlopeColor;
+	vec4 _HighSlopeTexST;
 	float _FrequencyVarianceLowerBound;
 	float _FrequencyVarianceUpperBound;
 	float _SlopeDamping;
