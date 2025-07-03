@@ -1,0 +1,29 @@
+// This is the uniform buffer that contains all of the settings we sent over from the cpu in _render_callback. Must match with the one in the vertex shader, they're technically the same thing occupying the same spot in memory this is just duplicate code required for compilation.
+layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
+	mat4 MVP;
+	vec3 _LightDirection;
+	float _GradientRotation;
+	float _NoiseRotation;
+	float _TerrainHeight;
+	vec2 _AngularVariance;
+	float _Scale;
+	float _Octaves;
+	float _AmplitudeDecay;
+	float _NormalStrength;
+	vec3 _Offset;
+	float _Seed;
+	float _InitialAmplitude;
+	float _Lacunarity;
+	vec2 _SlopeRange;
+	vec4 _LowSlopeColor;
+	vec4 _LowSlopeTexST;
+	vec4 _HighSlopeColor;
+	vec4 _HighSlopeTexST;
+	float _FrequencyVarianceLowerBound;
+	float _FrequencyVarianceUpperBound;
+	float _SlopeDamping;
+	vec4 _AmbientLight;
+	bool _VertexUseHeightmap;
+	bool _FragmentUseHeightmap;
+	float _MeshSize;
+};
