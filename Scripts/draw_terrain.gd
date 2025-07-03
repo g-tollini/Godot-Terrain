@@ -79,8 +79,18 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export var heightmap_texture_width : int = 512 # could use side_length but then we would have to handle recreating the textures when the value changes
 @export var update_heightmap : bool = true
 ## Sample the Heightmap instead of computing the noise in the vertex shader
-@export var vertex_use_heightmap : bool = true # use heightmap texture in vertex shader
-@export var fragment_use_heightmap : bool = true # use heightmap texture in fragment shader
+@export var vertex_use_heightmap : bool = false # use heightmap texture in vertex shader
+@export var fragment_use_heightmap : bool = false # use heightmap texture in fragment shader
+
+
+@export_subgroup("Save Settings")
+## heightmap will be saved at 'res://save_heightmap_as.png'
+@export var save_heightmap_as : String = "heightmap"
+@export var save_at_update : bool = true
+
+@export_subgroup("Import Settings")
+@export var import_heightmap : Texture2D
+@export var use_imported_heightmap : bool = false
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -152,6 +162,16 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 		push_error("RD Texture provided to compute_heightmap is invalid for the given RenderingDevice")
 		return
 	
+	if use_imported_heightmap:
+		if import_heightmap == null:
+			push_error("You need to assign a texture to 'import_heightmap' in order to use imported heightmap")
+			return
+		
+		var image = import_heightmap.get_image()
+		image.convert(Image.FORMAT_RGBAH)
+		rd.texture_update(heightmap_render_rdtex, 0, image.get_data())
+		return
+	
 	# Heightmap compute shader
 	var compute_heightmap_shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
 	var shader_file = load(compute_heightmap_shader_path)
@@ -193,10 +213,11 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 	local_rd.submit()
 	local_rd.sync() # could delay this to avoid freezing the frame
 
-	# Write texture to a file just to see it
-	var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-	var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-	heightmap_image.save_png("res://heightmap.png")
+	# Saving the heightmap
+	if save_at_update:
+		var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+		var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		heightmap_image.save_png("res://" + save_heightmap_as + ".png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT

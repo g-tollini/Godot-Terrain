@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://bs3wao3xrtlmq"]
+[gd_scene load_steps=7 format=3 uid="uid://bs3wao3xrtlmq"]
 
 [ext_resource type="Script" uid="uid://btn8i0m76hx2y" path="res://Scripts/Camera/debug_camera_controller.gd" id="1_hekff"]
 [ext_resource type="Script" uid="uid://7n58awc2ols0" path="res://Scripts/draw_terrain.gd" id="2_pyidc"]
@@ -44,6 +44,10 @@ ambient_light = Color(0.192, 0.2712, 0.3, 1)
 heightmap_texture_width = 512
 update_heightmap = false
 vertex_use_heightmap = false
+fragment_use_heightmap = false
+save_heightmap_as = "heightmap"
+save_at_update = true
+use_imported_heightmap = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 
 [sub_resource type="Compositor" id="Compositor_1i1cu"]
