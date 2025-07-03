@@ -1,5 +1,17 @@
 # Godot Terrain Generator
 
+Acerola's Dirt Jam
+
+## What's in this branch
+
+Shader code in .gd file moved to multiple .gdshaderinc files. Handling shader includes (#include "...") to allow reusing code
+
+## What is there to learn
+
+Not much...
+
+---
+
 by Acerola
 
 Implements simple perlin noise based fractional brownian motion as a Godot compositor effect for use as a base or reference in my event [Dirt Jam](https://itch.io/jam/acerola-dirt-jam/).
