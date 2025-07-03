@@ -917,11 +917,17 @@ const source_fragment = "
 			// to 0.5 * _MeshSize * vec3(1, 0, 1)
 			vec2 pos_min_xz = -0.5 * _MeshSize * vec2(1);
 			vec2 uv = (pos.xz - pos_min_xz) / _MeshSize;
+			float mul0 = 8;
+			float mul1 = 16;
+			float mul2 = 32;
 			
 			// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
 			vec3 n;
 			if (_FragmentUseHeightmap) // even when using the heightmap for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
-				n = 2 * (texture(heightmap, uv).xyz - vec3(0.5));
+				n = 2 * (texture(heightmap, uv).xyz - vec3(0.5)) + 
+				1/(mul2) * 2 * (texture(heightmap, mul0*uv).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+				+ 1/sqrt(mul1) * 2 * (texture(heightmap, mul1*uv).xyz - vec3(0.5)) // using sqrt so that the amplitude does not decay too much
+				+ 1/sqrt(mul0) * 2 * (texture(heightmap, mul2*uv).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
 			else
 				n = fbm(noise_pos.xz);
 			n *= _TerrainHeight;
