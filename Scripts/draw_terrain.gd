@@ -79,6 +79,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 
 ## Additive light adjustment
 @export var ambient_light : Color = Color.DIM_GRAY
+@export var rotate_light_source : bool = false
+@export_range(0.01, 1.0) var rotation_speed : float = 0.5
 
 @export_group("Fbm Settings")
 ## Resizing not handled
@@ -131,8 +133,7 @@ var compute_rd : RenderingDevice
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
 var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
 
-# heightmap
-var update_heightmap : bool = false
+# Heightmap
 var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
 var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
 
@@ -213,8 +214,6 @@ func compute_fbm(buffer : Array):
 	var fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, buffer, use_imported_fbm, import_fbm)
-	
-	update_heightmap = true
 
 	# Saving the fbm
 	if fbm_save_at_update:
@@ -249,6 +248,11 @@ func _init():
 	var tree := Engine.get_main_loop() as SceneTree
 	var root : Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
 	if root: light = root.get_node_or_null('DirectionalLight3D')
+	
+
+func rotate_light(light : DirectionalLight3D):
+	if rotate_light_source:
+		light.rotate_y(rotation_speed / 10)
 
 # Compiles... the shader...?
 func compile_shader(vertex_shader : String, fragment_shader : String) -> RID:
@@ -606,10 +610,9 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if update_fbm:
 		update_fbm = false
 		compute_fbm(buffer)
-		
-	if update_heightmap:
-		update_heightmap = false
-		compute_heightmap(buffer)
+	
+	rotate_light(light)
+	compute_heightmap(buffer)
 
 
 func _notification(what):
