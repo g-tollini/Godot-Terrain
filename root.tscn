@@ -48,10 +48,10 @@ high_slope_color = Color(0.1, 0.05835, 0.049, 1)
 ambient_light = Color(0.192, 0.2712, 0.3, 1)
 fbm_texture_width = 512
 update_fbm = false
-vertex_use_fbm = false
-fragment_use_fbm = false
-fbm_file_name = "heightmap"
-save_at_update = true
+vertex_use_fbm = true
+fragment_use_fbm = true
+fbm_file_name = "fbm"
+fbm_save_at_update = true
 use_imported_fbm = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 

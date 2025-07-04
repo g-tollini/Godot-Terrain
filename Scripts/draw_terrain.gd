@@ -91,7 +91,7 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_subgroup("Save Settings")
 ## fbm will be saved at 'res://fbm_file_name.png'
 @export var fbm_file_name : String = "fbm"
-@export var save_at_update : bool = true
+@export var fbm_save_at_update : bool = true
 
 @export_subgroup("Import Settings")
 @export var import_fbm : Texture2D
@@ -130,7 +130,11 @@ var compute_rd : RenderingDevice
 # Fbmmap
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
 var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
-var fbm_compute_shader : RID
+
+# heightmap
+var update_heightmap : bool = false
+var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
+var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
 
 func init_gpu():
 	if rd == null:
@@ -154,8 +158,8 @@ func init_gpu():
 	# High slope
 	high_slope_rdtex = rd.texture_create(slope_tex_format, RDTextureView.new())
 	
-	
-	# Fbm texture format
+	# Fbm
+	# Texture format
 	var fbm_tex_format = RDTextureFormat.new()
 	fbm_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
 	fbm_tex_format.width = fbm_texture_width
@@ -165,47 +169,78 @@ func init_gpu():
 	
 	# Creating the textures in the render devices
 	# One for the main rendering device (the one rendering the terrain)
-	if fbm_render_rdtex.is_valid():
-		compute_rd.free_rid(fbm_render_rdtex)
-	fbm_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
+	if !fbm_render_rdtex.is_valid():
+		fbm_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
 	
 	# One for the compute shader (local) rendering device
 	# This one is actually an alias for the one above that can be used in the local render device
-	if fbm_compute_rdtex.is_valid():
-		compute_rd.free_rid(fbm_compute_rdtex)
-	fbm_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
-		fbm_tex_format.format,
-		fbm_tex_format.samples,
-		fbm_tex_format.usage_bits,
-		rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, fbm_render_rdtex, 0),
-		fbm_tex_format.width,
-		fbm_tex_format.height,
-		fbm_tex_format.depth,
-		fbm_tex_format.array_layers)
-
+	if !fbm_compute_rdtex.is_valid():
+		fbm_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
+			fbm_tex_format.format,
+			fbm_tex_format.samples,
+			fbm_tex_format.usage_bits,
+			rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, fbm_render_rdtex, 0),
+			fbm_tex_format.width,
+			fbm_tex_format.height,
+			fbm_tex_format.depth,
+			fbm_tex_format.array_layers)
+			
+	# Heightmap
+	# Same as for fbm
+	if !heightmap_render_rdtex.is_valid():
+		heightmap_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
+		
+	if !heightmap_compute_rdtex.is_valid():
+		heightmap_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
+			fbm_tex_format.format,
+			fbm_tex_format.samples,
+			fbm_tex_format.usage_bits,
+			rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, heightmap_render_rdtex, 0),
+			fbm_tex_format.width,
+			fbm_tex_format.height,
+			fbm_tex_format.depth,
+			fbm_tex_format.array_layers)
 
 func compute_fbm(buffer : Array):
 	# Fbm compute shader
-	var fbm_compute_shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
-	var shader_file = load(fbm_compute_shader_path)
+	var shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
+	var shader_file = load(shader_path)
 	
 	if shader_file.get_class() != "RDShaderFile":
-		push_error("Shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
 
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	if fbm_compute_shader.is_valid():
-		compute_rd.free_rid(fbm_compute_shader)
-	fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	var fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, buffer, use_imported_fbm, import_fbm)
 	
-
+	update_heightmap = true
 
 	# Saving the fbm
-	if save_at_update:
+	if fbm_save_at_update:
 		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
 		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 		fbm_image.save_png("res://" + fbm_file_name + ".png")
+
+
+func compute_heightmap(buffer : Array):
+	# heightmap compute shader
+	var shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
+	var shader_file = load(shader_path)
+	
+	if shader_file.get_class() != "RDShaderFile":
+		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+
+	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
+	var heightmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	
+	ComputeUtils.ComputeHeightMap(compute_rd, heightmap_compute_shader, 
+	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, buffer)
+	
+	# Saving the heightmap
+	var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+	heightmap_image.save_png("res://heightmap.png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -562,6 +597,10 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if update_fbm:
 		update_fbm = false
 		compute_fbm(buffer)
+		
+	if update_heightmap:
+		update_heightmap = false
+		compute_heightmap(buffer)
 
 
 func _notification(what):
