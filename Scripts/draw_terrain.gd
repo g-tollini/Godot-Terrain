@@ -88,7 +88,6 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export var vertex_use_fbm : bool = false # use fbm texture in vertex shader
 @export var fragment_use_fbm : bool = false # use fbm texture in fragment shader
 
-
 @export_subgroup("Save Settings")
 ## fbm will be saved at 'res://fbm_file_name.png'
 @export var fbm_file_name : String = "fbm"
@@ -119,15 +118,19 @@ var p_shader : RID
 var p_wire_shader : RID
 var clear_colors := PackedColorArray([Color.DARK_BLUE])
 
+# Texturing
 var low_slope_rdtex : RID
 var high_slope_rdtex : RID
 var low_slope_texture_copied_to_gpu : RID
 var high_slope_texture_copied_to_gpu : RID
 
-var fbm_render_rdtex : RID # fbm texture in the main rendering device
+# Compute render revice
 var compute_rd : RenderingDevice
-var fbm_compute_rdtex : RID # fbm texture in the compute rendering device
-var compute_fbm_shader : RID
+
+# Fbmmap
+var fbm_render_rdtex : RID # fbm texture in the main rendering device
+var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
+var fbm_compute_shader : RID
 
 func init_gpu():
 	if rd == null:
@@ -181,65 +184,22 @@ func init_gpu():
 		fbm_tex_format.array_layers)
 
 
-func compute_fbm(local_rd : RenderingDevice, local_rd_texture : RID, buffer : Array):
-	if local_rd == null:
-		push_error("Local RenderingDevice provided to compute_fbm is null")
-		return
-		
-	if !local_rd.texture_is_valid(local_rd_texture):
-		push_error("RD Texture provided to compute_fbm is invalid for the given RenderingDevice")
-		return
-	
-	if use_imported_fbm:
-		if import_fbm == null:
-			push_error("You need to assign a texture to 'import_fbm' in order to use imported fbm")
-			return
-		
-		var image = import_fbm.get_image()
-		image.convert(Image.FORMAT_RGBAH)
-		rd.texture_update(fbm_render_rdtex, 0, image.get_data())
-		return
-	
+func compute_fbm(buffer : Array):
 	# Fbm compute shader
-	var compute_fbm_shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
-	var shader_file = load(compute_fbm_shader_path)
+	var fbm_compute_shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
+	var shader_file = load(fbm_compute_shader_path)
 	
 	if shader_file.get_class() != "RDShaderFile":
 		push_error("Shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
 
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	if compute_fbm_shader.is_valid():
-		local_rd.free_rid(compute_fbm_shader)
-	compute_fbm_shader = local_rd.shader_create_from_spirv(shader_spirv)
-		
-	# Uniforms
-	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
-	var p_uniform_buffer : RID = local_rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
+	if fbm_compute_shader.is_valid():
+		compute_rd.free_rid(fbm_compute_shader)
+	fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
-	var uniform := RDUniform.new()
+	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, buffer, use_imported_fbm, import_fbm)
 	
-	# The gpu needs to know the layout of the uniform variables, even though we have many variables here on the cpu, they're all in one uniform buffer, and so there is technically only one shader uniform
-	uniform.binding = 0
-	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-	uniform.add_id(p_uniform_buffer)
-		
-	var fbm_uniform := RDUniform.new()
-	fbm_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	fbm_uniform.binding = 1
-	fbm_uniform.add_id(local_rd_texture)
 
-	var compute_fbm_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform], compute_fbm_shader, 0)
-	var compute_fbm_pipeline = local_rd.compute_pipeline_create(compute_fbm_shader)
-	
-	var compute_list := local_rd.compute_list_begin()
-	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_fbm_pipeline)
-	local_rd.compute_list_bind_uniform_set(compute_list, compute_fbm_uniform_set, 0)
-	
-	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 8, fbm_texture_width / 8, 1)
-	local_rd.compute_list_end()
-
-	local_rd.submit()
-	local_rd.sync() # could delay this to avoid freezing the frame
 
 	# Saving the fbm
 	if save_at_update:
@@ -601,7 +561,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	if update_fbm:
 		update_fbm = false
-		compute_fbm(compute_rd, fbm_compute_rdtex, buffer)
+		compute_fbm(buffer)
 
 
 func _notification(what):
