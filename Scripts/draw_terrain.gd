@@ -550,7 +550,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		image.convert(Image.FORMAT_RGBA8)
 		rd.texture_update(high_slope_rdtex, 0, image.get_data())
 		high_slope_texture_copied_to_gpu = high_slope_texture.get_rid()
-
+	
+	# Fbm
 	var fbm_sampler_state := RDSamplerState.new()
 	fbm_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
 	fbm_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
@@ -563,6 +564,14 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	fbm_uniform.add_id(fbm_sampler)
 	fbm_uniform.add_id(fbm_render_rdtex)
 	uniforms.push_back(fbm_uniform)
+	
+	# Heightmap
+	var heightmap_uniform := RDUniform.new()
+	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	heightmap_uniform.binding = 4
+	heightmap_uniform.add_id(fbm_sampler)
+	heightmap_uniform.add_id(heightmap_render_rdtex)
+	uniforms.push_back(heightmap_uniform)
 	
 	# Currently we just free the previously instantiated uniform set and then make a new one, ideally this is only done when the uniform variables change
 	if p_render_pipeline_uniform_set.is_valid():

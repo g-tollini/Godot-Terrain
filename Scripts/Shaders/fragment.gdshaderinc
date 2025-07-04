@@ -7,8 +7,11 @@
 layout(set = 0, binding = 1) uniform sampler2D low_slope_texture;
 layout(set = 0, binding = 2) uniform sampler2D high_slope_texture;
 
+// Precomputed fbm texture
+layout(set = 0, binding = 3) uniform sampler2D fbmmap;
+
 // Heightmap
-layout(set = 0, binding = 3) uniform sampler2D heightmap;
+layout(set = 0, binding = 4) uniform sampler2D heightmap;
 
 // These are the variables that we expect to receive from the vertex shader
 layout(location = 2) in vec4 a_Color;
@@ -32,12 +35,12 @@ void main() {
 	
 	// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
 	vec3 n;
-	if (_FragmentUseHeightmap) // even when using the heightmap for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
-		n = 2 * (texture(heightmap, uv).xyz - vec3(0.5)) + 
-		  1 / (mul2) * 2 * (texture(heightmap, mul0 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
-		+ 1 / (mul2) * 2 * (texture(heightmap, mul0 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
-		+ 1 / sqrt(mul1) * 2 * (texture(heightmap, mul1 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using sqrt so that the amplitude does not decay too much
-		+ 1 / sqrt(mul1) * 2 * (texture(heightmap, mul2 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+	if (_FragmentUseHeightmap) // even when using the precomputed fbm texture for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
+		n = 2 * (texture(fbmmap, uv).xyz - vec3(0.5)) + 
+		  1 / (mul2) * 2 * (texture(fbmmap, mul0 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+		+ 1 / (mul2) * 2 * (texture(fbmmap, mul0 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
+		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mul1 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using sqrt so that the amplitude does not decay too much
+		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mul2 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
 	else
 		n = fbm(noise_pos.xz);
 	n *= _TerrainHeight;
@@ -53,10 +56,10 @@ void main() {
 
 	// Texturing
 	// Horizontal
-	vec2 uv_y = 0.001 * pos.xz * _LowSlopeTexST.xy + _LowSlopeTexST.zw;
+	vec2 uv_y = 0.001 * uv * _LowSlopeTexST.xy + _LowSlopeTexST.zw;
 	// Vertical
-	vec2 uv_x = -0.001 * pos.zy * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
-	vec2 uv_z = -0.001 * pos.xy * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+	vec2 uv_x = -0.001 * uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+	vec2 uv_z = -0.001 * uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
 	
 	vec4 lowSlopeTexSample = texture(low_slope_texture, uv_y);
 	vec4 highSlopeTexSample_x = texture(high_slope_texture, uv_x);
@@ -79,7 +82,16 @@ void main() {
 
 	// Combine lighting values, clip to prevent pixel values greater than 1 which would really really mess up the gamma correction below
 	vec4 lit = clamp(direct_light + ambient_light, vec4(0), vec4(1));
-
+	
+	vec4 heightmap_sample = texture(heightmap, uv);
+	float height = heightmap_sample.x;
+	float shadowHeight = heightmap_sample.y;
+	float shadowDepthCoeff = 5;
+	float shadowStrength = 1 - shadowDepthCoeff * clamp(0, 1, shadowHeight - height);
+	lit *= shadowStrength;
+	
+	lit.a = 1;
+	
 	// Convert from linear rgb to srgb for proper color output, ideally you'd do this as some final post processing effect because otherwise you will need to revert this gamma correction elsewhere
 	frag_color = pow(lit, vec4(2.2));
 }
