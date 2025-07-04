@@ -80,23 +80,23 @@ class_name DrawTerrainMesh extends CompositorEffect
 ## Additive light adjustment
 @export var ambient_light : Color = Color.DIM_GRAY
 
-@export_group("Heightmap Settings")
+@export_group("Fbm Settings")
 ## Resizing not handled
-@export var heightmap_texture_width : int = 512 # could use side_length but then we would have to handle recreating the textures when the value changes
-@export var update_heightmap : bool = true
-## Sample the Heightmap instead of computing the noise in the vertex shader
-@export var vertex_use_heightmap : bool = false # use heightmap texture in vertex shader
-@export var fragment_use_heightmap : bool = false # use heightmap texture in fragment shader
+@export var fbm_texture_width : int = 512 # could use side_length but then we would have to handle recreating the textures when the value changes
+@export var update_fbm : bool = true
+## Sample the Fbm instead of computing the noise in the vertex shader
+@export var vertex_use_fbm : bool = false # use fbm texture in vertex shader
+@export var fragment_use_fbm : bool = false # use fbm texture in fragment shader
 
 
 @export_subgroup("Save Settings")
-## heightmap will be saved at 'res://save_heightmap_as.png'
-@export var save_heightmap_as : String = "heightmap"
+## fbm will be saved at 'res://fbm_file_name.png'
+@export var fbm_file_name : String = "fbm"
 @export var save_at_update : bool = true
 
 @export_subgroup("Import Settings")
-@export var import_heightmap : Texture2D
-@export var use_imported_heightmap : bool = false
+@export var import_fbm : Texture2D
+@export var use_imported_fbm : bool = false
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -124,17 +124,17 @@ var high_slope_rdtex : RID
 var low_slope_texture_copied_to_gpu : RID
 var high_slope_texture_copied_to_gpu : RID
 
-var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
-var heightmap_rd : RenderingDevice
-var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device
-var compute_heightmap_shader : RID
+var fbm_render_rdtex : RID # fbm texture in the main rendering device
+var compute_rd : RenderingDevice
+var fbm_compute_rdtex : RID # fbm texture in the compute rendering device
+var compute_fbm_shader : RID
 
 func init_gpu():
 	if rd == null:
 		rd = RenderingServer.get_rendering_device()
 		
-	if heightmap_rd == null:
-		heightmap_rd = RenderingServer.create_local_rendering_device() # local render device that runs the heightmap compute shader
+	if compute_rd == null:
+		compute_rd = RenderingServer.create_local_rendering_device() # local render device that runs the fbm compute shader
 	
 	# Creating 2 textures on the gpu for the flat / steep areas
 	# Data will be copeid to these textures in _render_callback
@@ -152,65 +152,65 @@ func init_gpu():
 	high_slope_rdtex = rd.texture_create(slope_tex_format, RDTextureView.new())
 	
 	
-	# Heightmap texture format
-	var heightmap_tex_format = RDTextureFormat.new()
-	heightmap_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
-	heightmap_tex_format.width = heightmap_texture_width
-	heightmap_tex_format.height = heightmap_texture_width
-	heightmap_tex_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT # DATA_FORMAT_R8G8B8A8_UNORM is not precise enough
-	heightmap_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
+	# Fbm texture format
+	var fbm_tex_format = RDTextureFormat.new()
+	fbm_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
+	fbm_tex_format.width = fbm_texture_width
+	fbm_tex_format.height = fbm_texture_width
+	fbm_tex_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT # DATA_FORMAT_R8G8B8A8_UNORM is not precise enough
+	fbm_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	
 	# Creating the textures in the render devices
 	# One for the main rendering device (the one rendering the terrain)
-	if heightmap_render_rdtex.is_valid():
-		heightmap_rd.free_rid(heightmap_render_rdtex)
-	heightmap_render_rdtex = rd.texture_create(heightmap_tex_format, RDTextureView.new())
+	if fbm_render_rdtex.is_valid():
+		compute_rd.free_rid(fbm_render_rdtex)
+	fbm_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
 	
 	# One for the compute shader (local) rendering device
 	# This one is actually an alias for the one above that can be used in the local render device
-	if heightmap_compute_rdtex.is_valid():
-		heightmap_rd.free_rid(heightmap_compute_rdtex)
-	heightmap_compute_rdtex = heightmap_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
-		heightmap_tex_format.format,
-		heightmap_tex_format.samples,
-		heightmap_tex_format.usage_bits,
-		rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, heightmap_render_rdtex, 0),
-		heightmap_tex_format.width,
-		heightmap_tex_format.height,
-		heightmap_tex_format.depth,
-		heightmap_tex_format.array_layers)
+	if fbm_compute_rdtex.is_valid():
+		compute_rd.free_rid(fbm_compute_rdtex)
+	fbm_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
+		fbm_tex_format.format,
+		fbm_tex_format.samples,
+		fbm_tex_format.usage_bits,
+		rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, fbm_render_rdtex, 0),
+		fbm_tex_format.width,
+		fbm_tex_format.height,
+		fbm_tex_format.depth,
+		fbm_tex_format.array_layers)
 
 
-func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffer : Array):
+func compute_fbm(local_rd : RenderingDevice, local_rd_texture : RID, buffer : Array):
 	if local_rd == null:
-		push_error("Local RenderingDevice provided to compute_heightmap is null")
+		push_error("Local RenderingDevice provided to compute_fbm is null")
 		return
 		
 	if !local_rd.texture_is_valid(local_rd_texture):
-		push_error("RD Texture provided to compute_heightmap is invalid for the given RenderingDevice")
+		push_error("RD Texture provided to compute_fbm is invalid for the given RenderingDevice")
 		return
 	
-	if use_imported_heightmap:
-		if import_heightmap == null:
-			push_error("You need to assign a texture to 'import_heightmap' in order to use imported heightmap")
+	if use_imported_fbm:
+		if import_fbm == null:
+			push_error("You need to assign a texture to 'import_fbm' in order to use imported fbm")
 			return
 		
-		var image = import_heightmap.get_image()
+		var image = import_fbm.get_image()
 		image.convert(Image.FORMAT_RGBAH)
-		rd.texture_update(heightmap_render_rdtex, 0, image.get_data())
+		rd.texture_update(fbm_render_rdtex, 0, image.get_data())
 		return
 	
-	# Heightmap compute shader
-	var compute_heightmap_shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
-	var shader_file = load(compute_heightmap_shader_path)
+	# Fbm compute shader
+	var compute_fbm_shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
+	var shader_file = load(compute_fbm_shader_path)
 	
 	if shader_file.get_class() != "RDShaderFile":
 		push_error("Shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
 
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	if compute_heightmap_shader.is_valid():
-		local_rd.free_rid(compute_heightmap_shader)
-	compute_heightmap_shader = local_rd.shader_create_from_spirv(shader_spirv)
+	if compute_fbm_shader.is_valid():
+		local_rd.free_rid(compute_fbm_shader)
+	compute_fbm_shader = local_rd.shader_create_from_spirv(shader_spirv)
 		
 	# Uniforms
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
@@ -223,29 +223,29 @@ func compute_heightmap(local_rd : RenderingDevice, local_rd_texture : RID, buffe
 	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 	uniform.add_id(p_uniform_buffer)
 		
-	var heightmap_uniform := RDUniform.new()
-	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	heightmap_uniform.binding = 1
-	heightmap_uniform.add_id(local_rd_texture)
+	var fbm_uniform := RDUniform.new()
+	fbm_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	fbm_uniform.binding = 1
+	fbm_uniform.add_id(local_rd_texture)
 
-	var compute_heightmap_uniform_set = local_rd.uniform_set_create([uniform, heightmap_uniform], compute_heightmap_shader, 0)
-	var compute_heightmap_pipeline = local_rd.compute_pipeline_create(compute_heightmap_shader)
+	var compute_fbm_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform], compute_fbm_shader, 0)
+	var compute_fbm_pipeline = local_rd.compute_pipeline_create(compute_fbm_shader)
 	
 	var compute_list := local_rd.compute_list_begin()
-	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_heightmap_pipeline)
-	local_rd.compute_list_bind_uniform_set(compute_list, compute_heightmap_uniform_set, 0)
+	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_fbm_pipeline)
+	local_rd.compute_list_bind_uniform_set(compute_list, compute_fbm_uniform_set, 0)
 	
-	local_rd.compute_list_dispatch(compute_list, heightmap_texture_width / 8, heightmap_texture_width / 8, 1)
+	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 8, fbm_texture_width / 8, 1)
 	local_rd.compute_list_end()
 
 	local_rd.submit()
 	local_rd.sync() # could delay this to avoid freezing the frame
 
-	# Saving the heightmap
+	# Saving the fbm
 	if save_at_update:
-		var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-		var heightmap_image = Image.create_from_data(heightmap_texture_width, heightmap_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-		heightmap_image.save_png("res://" + save_heightmap_as + ".png")
+		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		fbm_image.save_png("res://" + fbm_file_name + ".png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -498,8 +498,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(ambient_light.g)
 	buffer.push_back(ambient_light.b)
 	buffer.push_back(1.0)
-	buffer.push_back(vertex_use_heightmap)
-	buffer.push_back(fragment_use_heightmap)
+	buffer.push_back(vertex_use_fbm)
+	buffer.push_back(fragment_use_fbm)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(1.0)
 
@@ -556,18 +556,18 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		rd.texture_update(high_slope_rdtex, 0, image.get_data())
 		high_slope_texture_copied_to_gpu = high_slope_texture.get_rid()
 
-	var heightmap_sampler_state := RDSamplerState.new()
-	heightmap_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
-	heightmap_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
-	heightmap_sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
-	var heightmap_sampler = rd.sampler_create(heightmap_sampler_state)
+	var fbm_sampler_state := RDSamplerState.new()
+	fbm_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	fbm_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	fbm_sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_LINEAR
+	var fbm_sampler = rd.sampler_create(fbm_sampler_state)
 	
-	var heightmap_uniform := RDUniform.new()
-	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-	heightmap_uniform.binding = 3
-	heightmap_uniform.add_id(heightmap_sampler)
-	heightmap_uniform.add_id(heightmap_render_rdtex)
-	uniforms.push_back(heightmap_uniform)
+	var fbm_uniform := RDUniform.new()
+	fbm_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	fbm_uniform.binding = 3
+	fbm_uniform.add_id(fbm_sampler)
+	fbm_uniform.add_id(fbm_render_rdtex)
+	uniforms.push_back(fbm_uniform)
 	
 	# Currently we just free the previously instantiated uniform set and then make a new one, ideally this is only done when the uniform variables change
 	if p_render_pipeline_uniform_set.is_valid():
@@ -599,9 +599,9 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 
 	rd.draw_command_end_label()
 	
-	if update_heightmap:
-		update_heightmap = false
-		compute_heightmap(heightmap_rd, heightmap_compute_rdtex, buffer)
+	if update_fbm:
+		update_fbm = false
+		compute_fbm(compute_rd, fbm_compute_rdtex, buffer)
 
 
 func _notification(what):
