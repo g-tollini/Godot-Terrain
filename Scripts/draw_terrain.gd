@@ -101,7 +101,7 @@ class_name DrawTerrainMesh extends CompositorEffect
 
 @export_group("Shadows settings")
 @export_range(0, 10) var shadow_strength : float = 5
-@export_range(1, 100) var shadow_adaptive_step_size_coeff : float = 5
+@export_range(0, 10) var shadow_adaptive_step_size_coeff : float = 5
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
 @export var use_shadow_propagation : bool = false
 @export var save_heightmap : bool = false

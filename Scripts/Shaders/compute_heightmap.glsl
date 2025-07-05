@@ -127,7 +127,7 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 	//vec4 sample_repeat_1 = imageLoad(heightmap, towards_light_sample_repeat_1_xy);
 	//vec4 sample_repeat_2 = imageLoad(heightmap, towards_light_sample_repeat_2_xy);
 	
-	float decay = (length(towards_light_d_uv) / _MeshSize) * (abs(_LightDirection.y)) / 2;
+	float decay = length(towards_light_d_uv) * abs(_LightDirection.y) / _TerrainHeight / 2;
 	
 	float neighbors_shadowheight = mix(sample_1.g, sample_2.g, sample_1_weight) - decay;
 	//float repeat_shadowheight = mix(sample_repeat_1.g, sample_repeat_2.g, sample_1_weight) - repeat_distance * decay;
