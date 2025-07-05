@@ -28,4 +28,5 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _MeshSize;
 	float _ShadowStrength;
 	bool _ShadowPropagation;
+	float _ShadowAdaptiveStepSize;
 };

@@ -31,6 +31,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _MeshSize;
 	float _ShadowStrength;
 	bool _ShadowPropagation;
+	float _ShadowAdaptiveStepSize;
 };
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
@@ -39,8 +40,9 @@ layout(set = 0, binding = 2, rgba16f) restrict uniform image2D heightmap;
 // Thread groups size
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// returns shadow height for texel xy
+// Two techniques for computing shadow height. The functions return the shadow height for texel xy
 float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
+float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
 
 void main()
 {
@@ -55,13 +57,16 @@ void main()
 	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
 	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
 
-	// The fractional brownian motion
-	vec3 n = texture(fbmmap, uv).xyz; // values in 0 ; 1
-	float height = n.x;
+	// Sampling the precomputed fbm texture
+	vec3 fbm_unorm = texture(fbmmap, uv).xyz; // values in 0 ; 1
+	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
+	float height = fbm.x;
 	
 	float shadowheight = 0;
 	if (_ShadowPropagation)
-		shadowheight = shadow_propagation(xy, dimensions, uv, n);
+		shadowheight = shadow_propagation(xy, dimensions, uv, fbm);
+	else
+		shadowheight = shadow_ray_marching(xy, dimensions, uv, fbm);
 	
 	imageStore(heightmap, xy, vec4(height, shadowheight, 0, 0));
 }
@@ -110,7 +115,6 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 	//towards_light_sample_repeat_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_1_xy);
 	//towards_light_sample_repeat_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_2_xy);
 	
-	
 	// Adjust height of the vertex by fbm result scaled by final desired amplitude
 	float height = fbm.x;
 	float shadowheight = height;
@@ -130,4 +134,57 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 	shadowheight = max(height, neighbors_shadowheight);
 	
 	return shadowheight;
+}
+
+// Samples fbm texture and returns point coordinates in world space
+vec3 fbm_sample_to_world_space(in vec2 uv); // with sampling
+vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
+
+float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
+{
+	float min_step_size = 10;
+	float adaptive_step_multiplyer = _ShadowAdaptiveStepSize * _Scale / _TerrainHeight;
+	
+	vec3 wpos = fbm_sample_to_world_space(uv, fbm);
+	float shadowHeight = wpos.y;
+	float step_size = min_step_size;
+	vec2 step_uv = uv;
+	int remaining_steps = 10;
+	//all(greaterThanEqual(step_uv, vec2(0))) && all(lessThanEqual(step_uv, vec2(1))) &&
+	while (remaining_steps > 0)
+	{
+		vec3 step = step_size * _LightDirection;
+		vec2 step_d_uv = step.xz / _MeshSize;
+		step_uv += step_d_uv;
+		vec3 step_wpos = fbm_sample_to_world_space(step_uv);
+		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
+		if (shadowHeight + rayDeltaHeight < step_wpos.y)
+			shadowHeight = step_wpos.y - rayDeltaHeight;
+		step_size = max(min_step_size, adaptive_step_multiplyer * (step_wpos.y - shadowHeight));
+		remaining_steps--;
+	}
+	
+	return (shadowHeight + _Offset.y) / _TerrainHeight - 1;
+}
+
+vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
+{
+	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+	// to 0.5 * _MeshSize * vec3(1, 0, 1)
+	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5); // code copied from other shaders
+	//vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale; // we don't need this as we are sampling the fbm texture instead of evaluating fbm(noise_pos.xz)
+	
+	// Adjust height of the vertex by fbm result scaled by final desired amplitude
+	pos.y += _TerrainHeight * fbm.x + _TerrainHeight - _Offset.y; // copied from vertex shader
+	
+	return pos;
+}
+
+vec3 fbm_sample_to_world_space(in vec2 uv)
+{
+	// Sampling the precomputed fbm texture
+	vec3 fbm_unorm = texture(fbmmap, uv).xyz; // values in 0 ; 1
+	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
+	
+	return fbm_sample_to_world_space(uv, fbm);
 }

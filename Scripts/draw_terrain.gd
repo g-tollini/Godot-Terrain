@@ -101,6 +101,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 
 @export_group("Shadows settings")
 @export_range(0, 10) var shadow_strength : float = 5
+@export_range(1, 100) var shadow_adaptive_step_size_coeff : float = 5
+## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
 @export var use_shadow_propagation : bool = false
 @export var save_heightmap : bool = false
 
@@ -497,7 +499,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(shadow_strength)
 	buffer.push_back(use_shadow_propagation)
-	buffer.push_back(1.0)
+	buffer.push_back(shadow_adaptive_step_size_coeff)
 	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 
@@ -620,17 +622,20 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	rotate_light(light)
 	light.position = side_length * mesh_scale * light_direction
+	light.position.y = -light.position.y
 	compute_heightmap(buffer)
 	
 	
 	# Saving the fbm
 	if save_fbm:
+		save_fbm = false
 		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
 		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 		fbm_image.save_png("res://" + fbm_file_name + ".png")
 		
 	# Saving the heightmap
 	if save_heightmap:
+		save_heightmap = false
 		var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
 		var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 		heightmap_image.save_png("res://heightmap.png")

@@ -50,12 +50,13 @@ rotate_light_source = false
 rotation_speed = 0.234
 fbm_texture_width = 512
 update_fbm = false
-vertex_use_fbm = false
+vertex_use_fbm = true
 fragment_use_fbm = false
 fbm_file_name = "fbm"
 save_fbm = false
 use_imported_fbm = false
-shadow_strength = 1.694
+shadow_strength = 2.0
+shadow_adaptive_step_size_coeff = 5.0
 use_shadow_propagation = false
 save_heightmap = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
@@ -66,7 +67,7 @@ compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5
 [node name="Root" type="Node3D"]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.504275, 0.459032, -0.732199, -0.594042, 0.79973, 0.0924245, 0.627738, 0.388051, 0.675654, -146.355, 18.4741, 135.052)
+transform = Transform3D(-0.751849, -0.576461, -0.321707, 0.595991, -0.802356, 0.0453895, -0.284175, -0.157488, 0.946334, -64.3058, -9.0729, 189.162)
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.60854)
