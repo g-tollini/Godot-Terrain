@@ -86,11 +86,11 @@ void main() {
 
 	vec4 heightmap_sample = texture(heightmap, uv);
 	float height = heightmap_sample.x;
-	float shadowHeight = heightmap_sample.y;
-	float shadowDepthCoeff = 3;
-	float shadowStrength = 1 - shadowDepthCoeff * clamp(0, 1 / shadowDepthCoeff, (shadowHeight - height) * _TerrainHeight / _Scale);
-	//if (shadowHeight > height + 0.1)
-		//lit *= 0.5 * (shadowStrength + shadowStrength * shadowStrength);
+	float shadowHeight = max(heightmap_sample.y - height, 0);
+	float shadow = 1;
+	if (_ShadowStrength != 0)
+		shadow = 1 - _ShadowStrength * clamp(0, 1 / _ShadowStrength, shadowHeight * _TerrainHeight / _Scale);
+	lit *= 0.5 * (shadow + shadow * shadow);
 
 	lit.a = 1;
 

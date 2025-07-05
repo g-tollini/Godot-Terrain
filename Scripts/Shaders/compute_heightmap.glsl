@@ -29,6 +29,8 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _VertexUsefbmmap;
 	bool _FragmentUsefbmmap;
 	float _MeshSize;
+	float _ShadowStrength;
+	bool _ShadowPropagation;
 };
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
@@ -37,6 +39,9 @@ layout(set = 0, binding = 2, rgba16f) restrict uniform image2D heightmap;
 // Thread groups size
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+// returns shadow height for texel xy
+float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
+
 void main()
 {
 	ivec2 dimensions = imageSize(heightmap);
@@ -44,6 +49,25 @@ void main()
 
 	vec2 uv = vec2(xy) / (vec2(dimensions) - vec2(1));
 	
+	// Sampling fbm texture
+	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+	// to 0.5 * _MeshSize * vec3(1, 0, 1)
+	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
+	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+
+	// The fractional brownian motion
+	vec3 n = texture(fbmmap, uv).xyz; // values in 0 ; 1
+	float height = n.x;
+	
+	float shadowheight = 0;
+	if (_ShadowPropagation)
+		shadowheight = shadow_propagation(xy, dimensions, uv, n);
+	
+	imageStore(heightmap, xy, vec4(height, shadowheight, 0, 0));
+}
+
+float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
+{
 	vec2 towards_light_d_uv = _LightDirection.xz;
 	float abs_x = abs(towards_light_d_uv.x);
 	float abs_y = abs(towards_light_d_uv.y);
@@ -86,17 +110,11 @@ void main()
 	//towards_light_sample_repeat_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_1_xy);
 	//towards_light_sample_repeat_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_2_xy);
 	
-	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
-	// to 0.5 * _MeshSize * vec3(1, 0, 1)
-	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
-	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
-
-	// The fractional brownian motion
-	vec3 n = texture(fbmmap, uv).xyz; // values in 0 ; 1
 	
 	// Adjust height of the vertex by fbm result scaled by final desired amplitude
-	float height = n.x;
-	float shadowheight = n.x;
+	float height = fbm.x;
+	float shadowheight = height;
+	
 	// Propagate neighboring shadows
 	//towards_light_sample_1_xy = xy + ivec2(1, 0);
 	//towards_light_sample_2_xy = xy + ivec2(1, 1);
@@ -111,5 +129,5 @@ void main()
 	//float repeat_shadowheight = mix(sample_repeat_1.g, sample_repeat_2.g, sample_1_weight) - repeat_distance * decay;
 	shadowheight = max(height, neighbors_shadowheight);
 	
-	imageStore(heightmap, xy, vec4(height, shadowheight, 0, 0));
+	return shadowheight;
 }

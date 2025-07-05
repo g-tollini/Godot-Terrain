@@ -26,4 +26,6 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _VertexUseHeightmap;
 	bool _FragmentUseHeightmap;
 	float _MeshSize;
+	float _ShadowStrength;
+	bool _ShadowPropagation;
 };

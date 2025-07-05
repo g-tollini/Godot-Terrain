@@ -93,11 +93,16 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_subgroup("Save Settings")
 ## fbm will be saved at 'res://fbm_file_name.png'
 @export var fbm_file_name : String = "fbm"
-@export var fbm_save_at_update : bool = true
+@export var save_fbm : bool = false
 
 @export_subgroup("Import Settings")
 @export var import_fbm : Texture2D
 @export var use_imported_fbm : bool = false
+
+@export_group("Shadows settings")
+@export_range(0, 10) var shadow_strength : float = 5
+@export var use_shadow_propagation : bool = false
+@export var save_heightmap : bool = false
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -217,13 +222,6 @@ func compute_fbm(buffer : Array):
 	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
-	# Saving the fbm
-	if fbm_save_at_update:
-		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-		fbm_image.save_png("res://" + fbm_file_name + ".png")
-
-
 func compute_heightmap(buffer : Array):
 	# heightmap compute shader
 	var shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
@@ -237,11 +235,6 @@ func compute_heightmap(buffer : Array):
 	
 	ComputeUtils.ComputeHeightMap(compute_rd, heightmap_compute_shader, 
 	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
-	
-	# Saving the heightmap
-	#var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-	#var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-	#heightmap_image.save_png("res://heightmap.png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -502,6 +495,10 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(vertex_use_fbm)
 	buffer.push_back(fragment_use_fbm)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
+	buffer.push_back(shadow_strength)
+	buffer.push_back(use_shadow_propagation)
+	buffer.push_back(1.0)
+	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 
 	
@@ -624,6 +621,19 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	rotate_light(light)
 	light.position = side_length * mesh_scale * light_direction
 	compute_heightmap(buffer)
+	
+	
+	# Saving the fbm
+	if save_fbm:
+		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		fbm_image.save_png("res://" + fbm_file_name + ".png")
+		
+	# Saving the heightmap
+	if save_heightmap:
+		var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+		var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		heightmap_image.save_png("res://heightmap.png")
 
 
 func _notification(what):

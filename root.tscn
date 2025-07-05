@@ -53,8 +53,11 @@ update_fbm = false
 vertex_use_fbm = false
 fragment_use_fbm = false
 fbm_file_name = "fbm"
-fbm_save_at_update = true
+save_fbm = false
 use_imported_fbm = false
+shadow_strength = 1.694
+use_shadow_propagation = false
+save_heightmap = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 
 [sub_resource type="Compositor" id="Compositor_1i1cu"]
