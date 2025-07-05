@@ -119,6 +119,7 @@ var p_wire_index_array : RID
 var p_shader : RID
 var p_wire_shader : RID
 var clear_colors := PackedColorArray([Color.DARK_BLUE])
+var p_uniform_buffer : RID
 
 # Texturing
 var low_slope_rdtex : RID
@@ -128,6 +129,7 @@ var high_slope_texture_copied_to_gpu : RID
 
 # Compute render revice
 var compute_rd : RenderingDevice
+var p_uniform_compute_buffer : RID # compute_rd version of p_uniform_buffer
 
 # Fbmmap
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
@@ -213,7 +215,7 @@ func compute_fbm(buffer : Array):
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	var fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
-	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, buffer, use_imported_fbm, import_fbm)
+	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
 	# Saving the fbm
 	if fbm_save_at_update:
@@ -234,12 +236,12 @@ func compute_heightmap(buffer : Array):
 	var heightmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
 	ComputeUtils.ComputeHeightMap(compute_rd, heightmap_compute_shader, 
-	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, buffer)
+	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
 	
 	# Saving the heightmap
-	var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-	var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-	heightmap_image.save_png("res://heightmap.png")
+	#var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	#var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+	#heightmap_image.save_png("res://heightmap.png")
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -252,7 +254,7 @@ func _init():
 
 func rotate_light(light : DirectionalLight3D):
 	if rotate_light_source:
-		light.rotate_y(rotation_speed / 10)
+		light.rotate_y(rotation_speed / 20)
 
 # Compiles... the shader...?
 func compile_shader(vertex_shader : String, fragment_shader : String) -> RID:
@@ -505,7 +507,15 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	# All of our settings are stored in a single uniform buffer, certainly not the best decision, but it's easy to work with
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
-	var p_uniform_buffer : RID = rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
+	if !p_uniform_buffer.is_valid():
+		p_uniform_buffer = rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
+	else:
+		rd.buffer_update(p_uniform_buffer, 0, buffer_bytes.size(), buffer_bytes)
+	
+	if !p_uniform_compute_buffer.is_valid():
+		p_uniform_compute_buffer = compute_rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
+	else:
+		compute_rd.buffer_update(p_uniform_compute_buffer, 0, buffer_bytes.size(), buffer_bytes)
 	
 	var uniforms = []
 	var uniform := RDUniform.new()
@@ -612,6 +622,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		compute_fbm(buffer)
 	
 	rotate_light(light)
+	light.position = side_length * mesh_scale * light_direction
 	compute_heightmap(buffer)
 
 

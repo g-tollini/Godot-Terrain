@@ -12,7 +12,7 @@ static func ComputeFbmMap(
 	local_rd_texture : RID,
 	fbm_texture_width : int,
 	# Noise settings
-	buffer : Array,
+	p_uniform_buffer : RID,
 	# Importing a saved fbm map
 	use_imported_fbm : bool = false, 
 	imported_fbm : Texture2D = null) -> void:
@@ -36,9 +36,6 @@ static func ComputeFbmMap(
 		return
 		
 	# Uniforms
-	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
-	var p_uniform_buffer : RID = local_rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
-	
 	var uniform := RDUniform.new()
 	
 	# The gpu needs to know the layout of the uniform variables, even though we have many variables here on the cpu, they're all in one uniform buffer, and so there is technically only one shader uniform
@@ -62,7 +59,7 @@ static func ComputeFbmMap(
 	local_rd.compute_list_end()
 
 	local_rd.submit()
-	local_rd.sync() # could delay this to avoid freezing the frame
+	local_rd.sync()
 
 static func ComputeHeightMap(
 	# Compute rendering device
@@ -73,7 +70,7 @@ static func ComputeHeightMap(
 	heightmap_compute_rdtex : RID,
 	heightmap_texture_width : int,
 	# Noise settings
-	buffer : Array) -> void:
+	p_uniform_buffer : RID) -> void:
 
 	if local_rd == null:
 		push_error("Local RenderingDevice provided to compute_fbm is null")
@@ -87,9 +84,6 @@ static func ComputeHeightMap(
 		return
 	
 	# Uniforms
-	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
-	var p_uniform_buffer : RID = local_rd.uniform_buffer_create(buffer_bytes.size(), buffer_bytes)
-	
 	var uniform := RDUniform.new()
 	
 	# The gpu needs to know the layout of the uniform variables, even though we have many variables here on the cpu, they're all in one uniform buffer, and so there is technically only one shader uniform
@@ -121,8 +115,8 @@ static func ComputeHeightMap(
 	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_heightmap_pipeline)
 	local_rd.compute_list_bind_uniform_set(compute_list, compute_heightmap_uniform_set, 0)
 	
-	local_rd.compute_list_dispatch(compute_list, heightmap_texture_width / 8, 1, 1)
+	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 8, fbm_texture_width / 8, 1)
 	local_rd.compute_list_end()
 
 	local_rd.submit()
-	local_rd.sync() # could delay this to avoid freezing the frame
+	local_rd.sync()

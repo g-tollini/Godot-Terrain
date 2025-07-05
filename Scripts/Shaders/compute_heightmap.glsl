@@ -39,28 +39,77 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 void main()
 {
-	int x = ivec2(gl_GlobalInvocationID.xy).x;
 	ivec2 dimensions = imageSize(heightmap);
-	for (int y = 0 ; y < imageSize(heightmap).y ; y++)
-	{
-		ivec2 xy = ivec2(x, y);
-		vec2 uv = vec2(xy) / vec2(dimensions);
-		
-		// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
-		// to 0.5 * _MeshSize * vec3(1, 0, 1)
-		vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
-		vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+	ivec2 xy = ivec2(gl_GlobalInvocationID.xy).xy;
 
-		// The fractional brownian motion
-		vec3 n = texture(fbmmap, uv).xyz; // values in -1 ; 1
-		
-		// Adjust height of the vertex by fbm result scaled by final desired amplitude
-		float height = n.x;
-		float shadowheight = n.x;
-		// Dummy shadows
-		if (y > 0)
-			shadowheight = max(height, imageLoad(heightmap, ivec2(x, y-1)).g);
-		
-		imageStore(heightmap, xy, vec4(height, shadowheight, 0, 0));
+	vec2 uv = vec2(xy) / (vec2(dimensions) - vec2(1));
+	
+	vec2 towards_light_d_uv = _LightDirection.xz;
+	float abs_x = abs(towards_light_d_uv.x);
+	float abs_y = abs(towards_light_d_uv.y);
+	
+	ivec2 towards_light_sample_1_xy;
+	ivec2 towards_light_sample_2_xy;
+	float sample_1_weight;
+	
+	//float repeat_distance = 5; // repeat shadow propagation from a distance so that it propagates faster ; but then it may introduce incorrect shadows
+	//ivec2 towards_light_sample_repeat_1_xy;
+	//ivec2 towards_light_sample_repeat_2_xy;
+	
+	if (abs_x > abs_y)
+	{
+		towards_light_d_uv /= abs_x;
+		towards_light_sample_1_xy = xy + ivec2(towards_light_d_uv.x, floor(towards_light_d_uv.y));
+		towards_light_sample_2_xy = xy + ivec2(towards_light_d_uv.x, ceil(towards_light_d_uv.y));
+		//towards_light_sample_repeat_1_xy = xy + ivec2(repeat_distance * towards_light_d_uv.x, floor(repeat_distance * towards_light_d_uv.y));
+		//towards_light_sample_repeat_2_xy = xy + ivec2(repeat_distance * towards_light_d_uv.x, ceil(repeat_distance * towards_light_d_uv.y));
+		if (towards_light_d_uv.y > 0)
+			sample_1_weight = towards_light_d_uv.y;
+		else
+			sample_1_weight = 1 + towards_light_d_uv.y;
 	}
+	else
+	{
+	 	towards_light_d_uv /= abs_y;
+		towards_light_sample_1_xy = xy + ivec2(floor(towards_light_d_uv.x), towards_light_d_uv.y);
+		towards_light_sample_2_xy = xy + ivec2(ceil(towards_light_d_uv.x), towards_light_d_uv.y);
+		//towards_light_sample_repeat_1_xy = xy + ivec2(floor(repeat_distance * towards_light_d_uv.x), repeat_distance * towards_light_d_uv.y);
+		//towards_light_sample_repeat_2_xy = xy + ivec2(ceil(repeat_distance * towards_light_d_uv.x), repeat_distance * towards_light_d_uv.y);
+		if (towards_light_d_uv.x > 0)
+			sample_1_weight = towards_light_d_uv.x;
+		else
+			sample_1_weight = 1 + towards_light_d_uv.x;
+	}
+	
+	towards_light_sample_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_1_xy);
+	towards_light_sample_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_2_xy);
+	//towards_light_sample_repeat_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_1_xy);
+	//towards_light_sample_repeat_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_2_xy);
+	
+	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
+	// to 0.5 * _MeshSize * vec3(1, 0, 1)
+	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
+	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+
+	// The fractional brownian motion
+	vec3 n = texture(fbmmap, uv).xyz; // values in 0 ; 1
+	
+	// Adjust height of the vertex by fbm result scaled by final desired amplitude
+	float height = n.x;
+	float shadowheight = n.x;
+	// Propagate neighboring shadows
+	//towards_light_sample_1_xy = xy + ivec2(1, 0);
+	//towards_light_sample_2_xy = xy + ivec2(1, 1);
+	vec4 sample_1 = imageLoad(heightmap, towards_light_sample_1_xy);
+	vec4 sample_2 = imageLoad(heightmap, towards_light_sample_2_xy);
+	//vec4 sample_repeat_1 = imageLoad(heightmap, towards_light_sample_repeat_1_xy);
+	//vec4 sample_repeat_2 = imageLoad(heightmap, towards_light_sample_repeat_2_xy);
+	
+	float decay = (length(towards_light_d_uv) / _MeshSize) * (abs(_LightDirection.y)) / 2;
+	
+	float neighbors_shadowheight = mix(sample_1.g, sample_2.g, sample_1_weight) - decay;
+	//float repeat_shadowheight = mix(sample_repeat_1.g, sample_repeat_2.g, sample_1_weight) - repeat_distance * decay;
+	shadowheight = max(height, neighbors_shadowheight);
+	
+	imageStore(heightmap, xy, vec4(height, shadowheight, 0, 0));
 }

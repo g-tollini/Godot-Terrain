@@ -26,9 +26,9 @@ side_length = 400
 mesh_scale = 0.5
 wireframe = false
 noise_seed = 135
-zoom = 139.5
+zoom = 129.7
 offset = Vector3(-200, 95.655, -326.08)
-gradient_rotation = 68.645
+gradient_rotation = 44.553
 octave_count = 12
 rotation = -26.99
 angular_variance = Vector2(-15, 15)
@@ -36,20 +36,22 @@ initial_amplitude = 0.739
 amplitude_decay = 0.439
 lacunarity = 1.991
 frequency_variance = Vector2(-0.085, 0.115)
-height_scale = 90.9
+height_scale = 80.5
 slope_damping = 0.155
 slope_threshold = Vector2(0.84, 0.98)
 low_slope_texture = ExtResource("2_28aoi")
 low_slope_texture_ST = Vector4(17.055, 16.39, 0.405, 0.32)
-low_slope_color = Color(0.366477, 0.373384, 0.0777902, 1)
+low_slope_color = Color(0.723929, 0.622583, 0.456814, 1)
 high_slope_texture = ExtResource("2_28aoi")
 high_slope_texture_ST = Vector4(28.19, 39, -1.065, 0.635)
 high_slope_color = Color(0.1, 0.05835, 0.049, 1)
 ambient_light = Color(0.192, 0.2712, 0.3, 1)
+rotate_light_source = false
+rotation_speed = 0.234
 fbm_texture_width = 512
 update_fbm = false
-vertex_use_fbm = true
-fragment_use_fbm = true
+vertex_use_fbm = false
+fragment_use_fbm = false
 fbm_file_name = "fbm"
 fbm_save_at_update = true
 use_imported_fbm = false
@@ -61,7 +63,7 @@ compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5
 [node name="Root" type="Node3D"]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.587785, 0.0338782, 0.808308, 8.73461e-08, -0.999123, 0.0418757, 0.809017, -0.0246138, -0.587269, 0, 0, 0)
+transform = Transform3D(0.504275, 0.459032, -0.732199, -0.594042, 0.79973, 0.0924245, 0.627738, 0.388051, 0.675654, -146.355, 18.4741, 135.052)
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.60854)

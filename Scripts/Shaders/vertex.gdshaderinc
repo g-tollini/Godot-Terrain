@@ -23,7 +23,7 @@ void main() {
 
 	// Initial noise sample position offset and scaled by uniform variables
 	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
-	
+
 	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
 	// to 0.5 * _MeshSize * vec3(1, 0, 1)
 	vec2 pos_min_xz = -0.5 * _MeshSize * vec2(1);
@@ -38,7 +38,7 @@ void main() {
 
 	// Adjust height of the vertex by fbm result scaled by final desired amplitude
 	pos.y += _TerrainHeight * n.x + _TerrainHeight - _Offset.y;
-	
+
 	// Multiply final vertex position with model/view/projection matrices to convert to clip space
 	gl_Position = MVP * vec4(pos, 1);
 }
