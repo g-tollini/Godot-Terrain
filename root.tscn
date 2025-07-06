@@ -41,24 +41,24 @@ slope_damping = 0.155
 slope_threshold = Vector2(0.84, 0.98)
 low_slope_texture = ExtResource("2_28aoi")
 low_slope_texture_ST = Vector4(17.055, 16.39, 0.405, 0.32)
-low_slope_color = Color(0.723929, 0.622583, 0.456814, 1)
+low_slope_color = Color(0.515662, 0.451859, 0.225508, 1)
 high_slope_texture = ExtResource("2_28aoi")
 high_slope_texture_ST = Vector4(28.19, 39, -1.065, 0.635)
-high_slope_color = Color(0.1, 0.05835, 0.049, 1)
+high_slope_color = Color(0.809404, 0.581583, 0.415475, 1)
 ambient_light = Color(0.192, 0.2712, 0.3, 1)
 rotate_light_source = false
 rotation_speed = 0.234
 fbm_texture_width = 512
-update_fbm = false
 vertex_use_fbm = true
 fragment_use_fbm = false
 fbm_file_name = "fbm"
 save_fbm = false
 use_imported_fbm = false
 shadow_strength = 2.0
-soft_shadows = 0.794
+soft_shadows = 0.475
 shadow_adaptive_step_size_coeff = 0.414
-use_shadow_propagation = false
+fragment_shadows = false
+shadow_propagation = false
 save_heightmap = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 
@@ -68,7 +68,7 @@ compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5
 [node name="Root" type="Node3D"]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(-0.601798, -0.254874, -0.757636, 0.584616, -0.787048, -0.199477, -0.545251, -0.562564, 0.622329, -151.444, 39.8735, 124.398)
+transform = Transform3D(0.41463, 0.193291, 0.890218, 0.593583, -0.799039, -0.102885, 0.691002, 0.570406, -0.445788, 177.884, 20.5585, -89.0775)
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.60854)
