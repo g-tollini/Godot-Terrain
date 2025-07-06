@@ -90,6 +90,8 @@ void main() {
 	float shadow = 1;
 	if (_ShadowStrength != 0)
 		shadow = 1 - _ShadowStrength * clamp(0, 1 / _ShadowStrength, shadowHeight * _TerrainHeight / _Scale);
+	if (shadow > _SoftShadows)
+		shadow = 1;
 	lit *= 0.5 * (shadow + shadow * shadow);
 
 	lit.a = 1;

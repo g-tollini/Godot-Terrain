@@ -101,6 +101,7 @@ class_name DrawTerrainMesh extends CompositorEffect
 
 @export_group("Shadows settings")
 @export_range(0, 10) var shadow_strength : float = 5
+@export_range(0, 1) var soft_shadows : float = 0.5
 @export_range(0, 10) var shadow_adaptive_step_size_coeff : float = 5
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
 @export var use_shadow_propagation : bool = false
@@ -498,9 +499,9 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(fragment_use_fbm)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(shadow_strength)
+	buffer.push_back(soft_shadows)
 	buffer.push_back(use_shadow_propagation)
 	buffer.push_back(shadow_adaptive_step_size_coeff)
-	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 
 	

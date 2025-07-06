@@ -30,6 +30,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _FragmentUsefbmmap;
 	float _MeshSize;
 	float _ShadowStrength;
+	float _SoftShadows;
 	bool _ShadowPropagation;
 	float _ShadowAdaptiveStepSize;
 };
