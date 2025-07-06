@@ -85,7 +85,6 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_group("Fbm Settings")
 ## Resizing not handled
 @export var fbm_texture_width : int = 512 # could use side_length but then we would have to handle recreating the textures when the value changes
-@export var update_fbm : bool = true
 ## Sample the Fbm instead of computing the noise in the vertex shader
 @export var vertex_use_fbm : bool = false # use fbm texture in vertex shader
 @export var fragment_use_fbm : bool = false # use fbm texture in fragment shader
@@ -138,6 +137,10 @@ var high_slope_texture_copied_to_gpu : RID
 # Compute render revice
 var compute_rd : RenderingDevice
 var p_uniform_compute_buffer : RID # compute_rd version of p_uniform_buffer
+var geometry_buffer_hash : int = 0 # for detecting value updates affecting geometry
+var lighting_buffer_hash : int = 0 # for detecting value updates affecting lighting
+var geometry_changed : bool = true
+var lighting_changed : bool = true
 
 # Fbmmap
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
@@ -504,6 +507,16 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(shadow_adaptive_step_size_coeff)
 	buffer.push_back(1.0)
 
+	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
+	var values_affecting_lighting : Array = [light_direction, use_shadow_propagation, shadow_adaptive_step_size_coeff]
+	var geometry_hash = values_affecting_geometry.hash()
+	var lighting_hash = values_affecting_lighting.hash()
+	
+	geometry_changed = geometry_buffer_hash != geometry_hash
+	geometry_buffer_hash = geometry_hash
+	lighting_changed = lighting_buffer_hash != lighting_hash || geometry_changed
+	lighting_buffer_hash = lighting_hash
+
 	
 	# All of our settings are stored in a single uniform buffer, certainly not the best decision, but it's easy to work with
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
@@ -617,15 +630,15 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 
 	rd.draw_command_end_label()
 	
-	if update_fbm:
-		update_fbm = false
-		compute_fbm(buffer)
-	
 	rotate_light(light)
 	light.position = side_length * mesh_scale * light_direction
 	light.position.y = -light.position.y
-	compute_heightmap(buffer)
 	
+	if geometry_changed:
+		compute_fbm(buffer)
+		
+	if lighting_changed || use_shadow_propagation:
+		compute_heightmap(buffer)
 	
 	# Saving the fbm
 	if save_fbm:
