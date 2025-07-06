@@ -101,9 +101,11 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_group("Shadows settings")
 @export_range(0, 10) var shadow_strength : float = 5
 @export_range(0, 1) var soft_shadows : float = 0.5
-@export_range(0, 10) var shadow_adaptive_step_size_coeff : float = 5
+@export_range(0, 1) var shadow_adaptive_step_size_coeff : float = 0.15
+## Compute 'pixel-perfect' shadows in the fragment shader
+@export var fragment_shadows : bool = false
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
-@export var use_shadow_propagation : bool = false
+@export var shadow_propagation : bool = false
 @export var save_heightmap : bool = false
 
 var transform : Transform3D
@@ -503,12 +505,12 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(shadow_strength)
 	buffer.push_back(soft_shadows)
-	buffer.push_back(use_shadow_propagation)
 	buffer.push_back(shadow_adaptive_step_size_coeff)
-	buffer.push_back(1.0)
+	buffer.push_back(fragment_shadows)
+	buffer.push_back(shadow_propagation)
 
 	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
-	var values_affecting_lighting : Array = [light_direction, use_shadow_propagation, shadow_adaptive_step_size_coeff]
+	var values_affecting_lighting : Array = [light_direction, shadow_propagation, shadow_adaptive_step_size_coeff]
 	var geometry_hash = values_affecting_geometry.hash()
 	var lighting_hash = values_affecting_lighting.hash()
 	
@@ -634,10 +636,13 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	light.position = side_length * mesh_scale * light_direction
 	light.position.y = -light.position.y
 	
+	if fragment_shadows: # cannot have both enabled
+		shadow_propagation = false
+	
 	if geometry_changed:
 		compute_fbm(buffer)
 		
-	if lighting_changed || use_shadow_propagation:
+	if lighting_changed || shadow_propagation && !fragment_shadows:
 		compute_heightmap(buffer)
 	
 	# Saving the fbm

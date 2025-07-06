@@ -31,8 +31,9 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _MeshSize;
 	float _ShadowStrength;
 	float _SoftShadows;
-	bool _ShadowPropagation;
 	float _ShadowAdaptiveStepSize;
+	bool _FragmentShadows;
+	bool _ShadowPropagation;
 };
 
 #define PI 3.141592653589793238462

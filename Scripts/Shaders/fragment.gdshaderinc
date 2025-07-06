@@ -20,6 +20,8 @@ layout(location = 3) in vec3 pos;
 // This is what the fragment shader will output, usually just a pixel color
 layout(location = 0) out vec4 frag_color;
 
+// Returns shadow depth (ie distance between terrain and light / shadow limit) at position
+float shadow_ray_marching(in vec3 position);
 
 void main() {
 	// Recalculate initial noise sampling position same as vertex shader
@@ -84,18 +86,94 @@ void main() {
 	// Combine lighting values, clip to prevent pixel values greater than 1 which would really really mess up the gamma correction below
 	vec4 lit = clamp(direct_light + ambient_light, vec4(0), vec4(1));
 
-	vec4 heightmap_sample = texture(heightmap, uv);
-	float height = heightmap_sample.x;
-	float shadowHeight = max(heightmap_sample.y - height, 0);
-	float shadow = 1;
+	float shadow = 0; // 0 means no shadow, 1 means completely dark
 	if (_ShadowStrength != 0)
-		shadow = 1 - _ShadowStrength * clamp(0, 1 / _ShadowStrength, shadowHeight * _TerrainHeight / _Scale);
-	if (shadow > _SoftShadows)
-		shadow = 1;
-	lit *= 0.5 * (shadow + shadow * shadow);
+	{
+		float shadowDepth = 0; // how far above the terrain the light / shadow limit is
+		// Compute shadows
+		if (_FragmentShadows)
+		{
+			shadowDepth = shadow_ray_marching(pos);
+		}
+		else
+		{
+			vec4 heightmap_sample = texture(heightmap, uv);
+			float height_unorm = heightmap_sample.x;
+			float shadowHeight_unorm = heightmap_sample.y;
+			shadowDepth = max(2 * (shadowHeight_unorm - height_unorm) * _TerrainHeight, 0);
+		}
+		shadow = _ShadowStrength * clamp(0, 1 / _ShadowStrength, 0.5 * shadowDepth / _TerrainHeight);
+	}
+	
+	// Smooth shadows
+	float light_shadow_threshold = 0.1;
+	float smoothstep_low = light_shadow_threshold;
+	float smoothstep_high = light_shadow_threshold * (1 + _SoftShadows);
+	shadow = shadow * smoothstep(smoothstep_low, smoothstep_high, shadow);
 
+	// Apply shadows
+	lit *= 0.5 * (1 - shadow + (1 - shadow) * (1 - shadow));
 	lit.a = 1;
 
 	// Convert from linear rgb to srgb for proper color output, ideally you'd do this as some final post processing effect because otherwise you will need to revert this gamma correction elsewhere
 	frag_color = pow(lit, vec4(2.2));
+}
+
+// Returns shadow depth (ie distance between terrain and light / shadow limit) at position
+float shadow_ray_marching(in vec3 position)
+{
+	vec3 pos_min = -0.5 * _MeshSize * vec3(1);
+	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
+	float min_step_size = 5;
+	float adaptive_step_multiplyer = _ShadowAdaptiveStepSize * _Scale / _TerrainHeight;
+
+	vec3 current_position = position;
+	vec3 current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+	vec3 n = fbm(current_noise_pos.xz);
+	current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
+	float height = current_position.y;
+	float shadowHeight = height;
+
+	float step_size = min_step_size;
+	int remaining_steps = 15;
+
+	while (remaining_steps > 0)
+	{
+		vec3 next_step = step_size * _LightDirection;
+		current_position += next_step;
+		if (any(greaterThanEqual(current_position.xz, pos_max.xz)) || any(lessThanEqual(current_position.xz, pos_min.xz)))
+		{
+			if (current_position.x > pos_max.x)
+			{
+				next_step *= - (current_position.x - pos_max.x) / next_step.x;
+				current_position += next_step;
+			}
+			else if (current_position.x < pos_min.x)
+			{
+				next_step *= - (pos_min.x - current_position.x) / next_step.x;
+				current_position += next_step;
+			}
+			if (current_position.y > pos_max.y)
+			{
+				next_step *= - (current_position.y - pos_max.y) / next_step.y;
+				current_position += next_step;
+			}
+			else if (current_position.y < pos_min.y)
+			{
+				next_step *= - (pos_min.y - current_position.y) / next_step.y;
+				current_position += next_step;
+			}
+			remaining_steps = min(remaining_steps, 3);
+		}
+		current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+		n = fbm(current_noise_pos.xz);
+		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
+		float rayDeltaHeight = length((current_position - position).xz) * abs(_LightDirection.y);
+		if (shadowHeight + rayDeltaHeight < current_position.y)
+			shadowHeight = current_position.y - rayDeltaHeight;
+		step_size = max(min_step_size, adaptive_step_multiplyer * (shadowHeight + rayDeltaHeight - current_position.y));
+		remaining_steps--;
+	}
+
+	return shadowHeight - height;
 }
