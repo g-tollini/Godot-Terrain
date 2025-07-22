@@ -34,6 +34,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _ShadowAdaptiveStepSize;
 	bool _FragmentShadows;
 	bool _ShadowPropagation;
+	bool _CumulativeRayMarching;
 };
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
@@ -146,8 +147,8 @@ vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
 
 float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
 {
-	float min_step_size = 5;
-	float adaptive_step_multiplyer = _ShadowAdaptiveStepSize * _Scale / _TerrainHeight;
+	float min_step_size = 1;
+	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
 	
 	vec2 step_uv = uv;
 	vec3 current_position = fbm_sample_to_world_space(step_uv, fbm);
@@ -155,36 +156,14 @@ float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 
 	float shadowHeight = height;
 	
 	float step_size = min_step_size;
-	int remaining_steps = 30;
+	int remaining_steps = 10;
 	
-	while (remaining_steps > 0)
+	while (remaining_steps > 0 &&
+		all(lessThanEqual(step_uv, vec2(1))) && 
+		all(greaterThanEqual(step_uv, vec2(0))) )
 	{
 		vec3 next_step = step_size * _LightDirection;
 		step_uv += next_step.xz / _MeshSize;
-		if (any(greaterThanEqual(step_uv, vec2(1))) || any(lessThanEqual(step_uv, vec2(0))))
-		{
-			if (step_uv.x > 1)
-			{
-				next_step *= - (step_uv.x - 1) / next_step.x;
-				step_uv += next_step.xz / _MeshSize;
-			}
-			else if (step_uv.x < 0)
-			{
-				next_step *= - (0 - step_uv.x) / next_step.x;
-				step_uv += next_step.xz / _MeshSize;
-			}
-			if (step_uv.y > 1)
-			{
-				next_step *= - (step_uv.y - 1) / next_step.y;
-				step_uv += next_step.xz / _MeshSize;
-			}
-			else if (step_uv.y < 0)
-			{
-				next_step *= - (0 - step_uv.y) / next_step.y;
-				step_uv += next_step.xz / _MeshSize;
-			}
-			remaining_steps = min(remaining_steps, 3);
-		}
 		current_position = fbm_sample_to_world_space(step_uv);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
 		if (shadowHeight + rayDeltaHeight < current_position.y)

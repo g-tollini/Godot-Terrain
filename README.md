@@ -17,6 +17,9 @@ Anyway, we likely prefer having soft shadows and in this case the difference bet
 
 Shadows edges that become softer as we go further away from the object casting the shadow was not implemented but would be a nice improvement.
 
+The ray marching technique has two main parameters : the max number of steps, and the min size of each step. If the max number of step is too small, shadows will not be cast over long distances. If the min step size is too big the light/shadow limit will be incorrect and there will likely be holes in the shadow.
+![ray_marching_limitations](doc/ray_marching_limitations.png)
+
 ---
 
 by Acerola

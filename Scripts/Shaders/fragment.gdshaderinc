@@ -128,8 +128,8 @@ float shadow_ray_marching(in vec3 position)
 {
 	vec3 pos_min = -0.5 * _MeshSize * vec3(1);
 	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
-	float min_step_size = 5;
-	float adaptive_step_multiplyer = _ShadowAdaptiveStepSize * _Scale / _TerrainHeight;
+	float min_step_size = 1;
+	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
 
 	vec3 current_position = position;
 	vec3 current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
@@ -139,36 +139,15 @@ float shadow_ray_marching(in vec3 position)
 	float shadowHeight = height;
 
 	float step_size = min_step_size;
-	int remaining_steps = 15;
+	int remaining_steps = 10;
 
-	while (remaining_steps > 0)
+	while (remaining_steps > 0 &&
+		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
+		all(greaterThanEqual(current_position.xz, pos_min.xz)) )
 	{
 		vec3 next_step = step_size * _LightDirection;
 		current_position += next_step;
-		if (any(greaterThanEqual(current_position.xz, pos_max.xz)) || any(lessThanEqual(current_position.xz, pos_min.xz)))
-		{
-			if (current_position.x > pos_max.x)
-			{
-				next_step *= - (current_position.x - pos_max.x) / next_step.x;
-				current_position += next_step;
-			}
-			else if (current_position.x < pos_min.x)
-			{
-				next_step *= - (pos_min.x - current_position.x) / next_step.x;
-				current_position += next_step;
-			}
-			if (current_position.y > pos_max.y)
-			{
-				next_step *= - (current_position.y - pos_max.y) / next_step.y;
-				current_position += next_step;
-			}
-			else if (current_position.y < pos_min.y)
-			{
-				next_step *= - (pos_min.y - current_position.y) / next_step.y;
-				current_position += next_step;
-			}
-			remaining_steps = min(remaining_steps, 3);
-		}
+			
 		current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
 		n = fbm(current_noise_pos.xz);
 		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
