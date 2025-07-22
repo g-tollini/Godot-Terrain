@@ -100,7 +100,7 @@ void main() {
 			vec4 heightmap_sample = texture(heightmap, uv);
 			float height_unorm = heightmap_sample.x;
 			float shadowHeight_unorm = heightmap_sample.y;
-			shadowDepth = max(2 * (shadowHeight_unorm - height_unorm) * _TerrainHeight, 0);
+			shadowDepth = max(2 * shadowHeight_unorm * _TerrainHeight, 0);
 		}
 		shadow = _ShadowStrength * clamp(0, 1 / _ShadowStrength, 0.5 * shadowDepth / _TerrainHeight);
 	}
@@ -136,7 +136,7 @@ float shadow_ray_marching(in vec3 position)
 	vec3 n = fbm(current_noise_pos.xz);
 	current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 	float height = current_position.y;
-	float shadowHeight = height;
+	float shadowDepth = 0;
 
 	float step_size = min_step_size;
 	int remaining_steps = 10;
@@ -152,11 +152,11 @@ float shadow_ray_marching(in vec3 position)
 		n = fbm(current_noise_pos.xz);
 		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 		float rayDeltaHeight = length((current_position - position).xz) * abs(_LightDirection.y);
-		if (shadowHeight + rayDeltaHeight < current_position.y)
-			shadowHeight = current_position.y - rayDeltaHeight;
-		step_size = max(min_step_size, adaptive_step_multiplyer * (shadowHeight + rayDeltaHeight - current_position.y));
+		if (height + rayDeltaHeight < current_position.y)
+			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
+		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
 		remaining_steps--;
 	}
-
-	return shadowHeight - height;
+	
+	return shadowDepth;
 }

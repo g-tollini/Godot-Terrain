@@ -65,15 +65,15 @@ void main()
 	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
 	float height = fbm.x;
 	
-	float shadowheight = height;
+	float shadowDepth = 0;
 	if (_ShadowPropagation)
-		shadowheight = shadow_propagation(xy, dimensions, uv, fbm);
+		shadowDepth = shadow_propagation(xy, dimensions, uv, fbm);
 	else
-		shadowheight = shadow_ray_marching(xy, dimensions, uv, fbm);
+		shadowDepth = shadow_ray_marching(xy, dimensions, uv, fbm);
 		
-	float shadowHeight_unorm = 0.5 * (shadowheight + _Offset.y) / _TerrainHeight;
+	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
 	
-	imageStore(heightmap, xy, vec4(fbm_unorm.x, shadowHeight_unorm, 0, 0));
+	imageStore(heightmap, xy, vec4(fbm_unorm.x, shadowDepth_unorm, 0, 0));
 }
 
 float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
@@ -120,10 +120,6 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 	//towards_light_sample_repeat_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_1_xy);
 	//towards_light_sample_repeat_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_repeat_2_xy);
 	
-	// Adjust height of the vertex by fbm result scaled by final desired amplitude
-	float height = fbm.x;
-	float shadowHeight = height;
-	
 	// Propagate neighboring shadows
 	//towards_light_sample_1_xy = xy + ivec2(1, 0);
 	//towards_light_sample_2_xy = xy + ivec2(1, 1);
@@ -132,13 +128,13 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 	//vec4 sample_repeat_1 = imageLoad(heightmap, towards_light_sample_repeat_1_xy);
 	//vec4 sample_repeat_2 = imageLoad(heightmap, towards_light_sample_repeat_2_xy);
 	
-	float decay = length(towards_light) * _MeshSize / dimensions.x * abs(_LightDirection.y) / _TerrainHeight / 16;
+	float decay = length(towards_light) * _MeshSize / dimensions.x * abs(_LightDirection.y);
 	
-	float neighbors_shadowHeight_unorm = mix(sample_1.g, sample_2.g, sample_1_weight);
-	float neighbors_shadowHeight = 2 * neighbors_shadowHeight_unorm - 1;
-	shadowHeight = max(height, neighbors_shadowHeight - decay);
+	float neighbors_shadowHeight_unorm = mix(sample_1.r + sample_1.g, sample_2.r + sample_2.g, sample_1_weight);
+	float height_unorm = 0.5 * (fbm.x + 1);
+	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
 	
-	return (shadowHeight + 1) * _TerrainHeight - _Offset.y;
+	return shadowDepth;
 }
 
 // Samples fbm texture and returns point coordinates in world space
@@ -153,7 +149,7 @@ float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 
 	vec2 step_uv = uv;
 	vec3 current_position = fbm_sample_to_world_space(step_uv, fbm);
 	float height = current_position.y;
-	float shadowHeight = height;
+	float shadowDepth = 0;
 	
 	float step_size = min_step_size;
 	int remaining_steps = 10;
@@ -166,13 +162,13 @@ float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 
 		step_uv += next_step.xz / _MeshSize;
 		current_position = fbm_sample_to_world_space(step_uv);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
-		if (shadowHeight + rayDeltaHeight < current_position.y)
-			shadowHeight = current_position.y - rayDeltaHeight;
-		step_size = max(min_step_size, adaptive_step_multiplyer * (shadowHeight + rayDeltaHeight - current_position.y));
+		if (height + rayDeltaHeight < current_position.y)
+			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
+		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
 		remaining_steps--;
 	}
 	
-	return shadowHeight;
+	return shadowDepth;
 }
 
 vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
