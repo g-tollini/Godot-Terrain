@@ -106,10 +106,14 @@ void main() {
 	}
 	
 	// Smooth shadows
-	float light_shadow_threshold = 0.1;
-	float smoothstep_low = light_shadow_threshold;
-	float smoothstep_high = light_shadow_threshold * (1 + _SoftShadows);
-	shadow = shadow * smoothstep(smoothstep_low, smoothstep_high, shadow);
+	float base_shadow_strength = (1 - _SoftShadows) / 10.0;
+	float light_shadow_threshold = 0.05;
+	float soft_shadow_slider_coeff = 0.15; // to limit the _SoftShadows slider values (in [0 ; 1]) to values that look good
+	if (shadow > 0)
+	{
+		shadow = base_shadow_strength + clamp(0, 1 - base_shadow_strength, shadow); // hader shadows
+		shadow *= smoothstep(light_shadow_threshold, light_shadow_threshold + soft_shadow_slider_coeff * _SoftShadows, shadow); // softer shadows
+	}
 
 	// Apply shadows
 	lit *= 0.5 * (1 - shadow + (1 - shadow) * (1 - shadow));

@@ -15,9 +15,7 @@ Fragment shadows (shadows computed in the fragment shader) give the best result 
 Anyway, we likely prefer having soft shadows and in this case the difference between the two techniques insn't noticeable
 ![shadows_max_steps.png](doc/shadows_max_steps.png)
 
-Shadows edges that become softer as we go further away from the object casting the shadow was not implemented but would be a nice improvement. On the contrary, we have unwanted shadow edges near the top of the shadowed faces of the terrain. 
-This is caused by the soft shadow smoothstepping cutting away shadow intensity in the light shadow regions, but can be fixed using another formula that increases overall shadows instead.
-![undesired_hard_shadows.png](doc/undesired_hard_shadows.png)
+Shadows edges that become softer as we go further away from the object casting the shadow was not implemented but would be a nice improvement.
 
 ---
 
