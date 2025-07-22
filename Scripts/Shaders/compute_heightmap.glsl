@@ -32,6 +32,8 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _ShadowStrength;
 	float _SoftShadows;
 	float _ShadowAdaptiveStepSize;
+	float _ShadowMinStepSize;
+	float _ShadowMaxStepCount;
 	bool _FragmentShadows;
 	bool _ShadowPropagation;
 	bool _CumulativeRayMarching;
@@ -151,8 +153,9 @@ vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
 
 float shadow_ray_marching(in vec2 uv, in vec3 fbm)
 {
-	float min_step_size = 1;
+	float min_step_size = clamp(0.1, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
+	int remaining_steps = clamp(1, 100, int(_ShadowMaxStepCount));
 	
 	vec2 step_uv = uv;
 	vec3 current_position = fbm_sample_to_world_space(step_uv, fbm);
@@ -160,7 +163,6 @@ float shadow_ray_marching(in vec2 uv, in vec3 fbm)
 	float shadowDepth = 0;
 	
 	float step_size = min_step_size;
-	int remaining_steps = 10;
 	
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(step_uv, vec2(1))) && 
@@ -170,7 +172,7 @@ float shadow_ray_marching(in vec2 uv, in vec3 fbm)
 		step_uv += next_step.xz / _MeshSize;
 		current_position = fbm_sample_to_world_space(step_uv);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
-		if (height + rayDeltaHeight < current_position.y)
+		if (height + rayDeltaHeight < current_position.y - 0.1)
 			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
 		remaining_steps--;
@@ -181,8 +183,9 @@ float shadow_ray_marching(in vec2 uv, in vec3 fbm)
 
 vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv)
 {
-	float min_step_size = 1;
+	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
+	int remaining_steps = clamp(1, 100, int(_ShadowMaxStepCount));
 	
 	vec4 shadowMap = imageLoad(heightmap, xy);
 	
@@ -194,7 +197,6 @@ vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv)
 	float shadowDepth = 2 * shadowMap.y * _TerrainHeight;
 	
 	float step_size = min_step_size;
-	int remaining_steps = 5;
 	
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(step_uv, vec2(1))) && 

@@ -29,6 +29,8 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _ShadowStrength;
 	float _SoftShadows;
 	float _ShadowAdaptiveStepSize;
+	float _ShadowMinStepSize;
+	float _ShadowMaxStepCount;
 	bool _FragmentShadows;
 	bool _ShadowPropagation;
 	bool _CumulativeRayMarching;

@@ -128,8 +128,9 @@ float shadow_ray_marching(in vec3 position)
 {
 	vec3 pos_min = -0.5 * _MeshSize * vec3(1);
 	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
-	float min_step_size = 1;
+	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
+	int remaining_steps = clamp(1, 100, int(_ShadowMaxStepCount));
 
 	vec3 current_position = position;
 	vec3 current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
@@ -139,7 +140,6 @@ float shadow_ray_marching(in vec3 position)
 	float shadowDepth = 0;
 
 	float step_size = min_step_size;
-	int remaining_steps = 10;
 
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
