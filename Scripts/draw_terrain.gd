@@ -102,7 +102,7 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_range(0, 10) var shadow_strength : float = 5
 @export_range(0, 1) var soft_shadows : float = 0.5
 @export_range(0, 1) var shadow_adaptive_step_size_coeff : float = 0.15
-## Using cumulative ray marching to compute shadow map
+## Performing ray marching over multiple frames untill each ray reaches the edge of the terrain
 @export var cumulative_shadows : bool = false
 ## Compute 'pixel-perfect' shadows in the fragment shader
 @export var fragment_shadows : bool = false
@@ -510,7 +510,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(shadow_adaptive_step_size_coeff)
 	buffer.push_back(fragment_shadows)
 	buffer.push_back(shadow_propagation)
-	buffer.push_back(cumulative_shadows)
+	buffer.push_back(cumulative_shadows && !lighting_changed)
 	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 	buffer.push_back(1.0)
@@ -648,7 +648,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if geometry_changed:
 		compute_fbm(buffer)
 		
-	if lighting_changed || (shadow_propagation && !fragment_shadows):
+	if lighting_changed || (shadow_propagation && !fragment_shadows) || cumulative_shadows:
 		compute_heightmap(buffer)
 	
 	# Saving the fbm

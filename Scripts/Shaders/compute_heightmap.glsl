@@ -45,7 +45,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // Two techniques for computing shadow height. The functions return the shadow height for texel xy
 float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
-float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
+float shadow_ray_marching(in vec2 uv, in vec3 fbm);
+vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv);
 
 void main()
 {
@@ -66,14 +67,21 @@ void main()
 	float height = fbm.x;
 	
 	float shadowDepth = 0;
-	if (_ShadowPropagation)
-		shadowDepth = shadow_propagation(xy, dimensions, uv, fbm);
+	vec4 shadowMap = vec4(fbm_unorm.x, 0, 0, 0);
+	if (_CumulativeRayMarching){
+		shadowMap = shadow_cumulative_ray_marching(xy, uv);
+	}
 	else
-		shadowDepth = shadow_ray_marching(xy, dimensions, uv, fbm);
-		
-	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
-	
-	imageStore(heightmap, xy, vec4(fbm_unorm.x, shadowDepth_unorm, 0, 0));
+	{
+		if (_ShadowPropagation)
+			shadowDepth = shadow_propagation(xy, dimensions, uv, fbm);
+		else
+			shadowDepth = shadow_ray_marching(uv, fbm);
+			
+		float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
+		shadowMap.y = shadowDepth_unorm;
+	}
+	imageStore(heightmap, xy, shadowMap);
 }
 
 float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
@@ -141,7 +149,7 @@ float shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 f
 vec3 fbm_sample_to_world_space(in vec2 uv); // with sampling
 vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
 
-float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
+float shadow_ray_marching(in vec2 uv, in vec3 fbm)
 {
 	float min_step_size = 1;
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
@@ -169,6 +177,43 @@ float shadow_ray_marching(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 
 	}
 	
 	return shadowDepth;
+}
+
+vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv)
+{
+	float min_step_size = 1;
+	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
+	
+	vec4 shadowMap = imageLoad(heightmap, xy);
+	
+	float duv = shadowMap.z;
+	
+	float height = fbm_sample_to_world_space(uv).y;
+	vec2 step_uv = uv + duv * normalize(_LightDirection.xz);
+	vec3 current_position = fbm_sample_to_world_space(step_uv);
+	float shadowDepth = 2 * shadowMap.y * _TerrainHeight;
+	
+	float step_size = min_step_size;
+	int remaining_steps = 5;
+	
+	while (remaining_steps > 0 &&
+		all(lessThanEqual(step_uv, vec2(1))) && 
+		all(greaterThanEqual(step_uv, vec2(0))) )
+	{
+		vec3 next_step = step_size * _LightDirection;
+		step_uv += next_step.xz / _MeshSize;
+		current_position = fbm_sample_to_world_space(step_uv);
+		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
+		if (height + rayDeltaHeight < current_position.y)
+			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
+		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
+		remaining_steps--;
+	}
+	
+	float fbm_unorm_x = 0.5 * (height - _Offset.y) / _TerrainHeight;
+	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
+	duv = length(step_uv - uv);
+	return vec4(fbm_unorm_x, shadowDepth_unorm, duv, 0);
 }
 
 vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
