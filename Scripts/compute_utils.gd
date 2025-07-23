@@ -61,7 +61,7 @@ static func ComputeFbmMap(
 	local_rd.submit()
 	local_rd.sync()
 
-static func ComputeHeightMap(
+static func ComputeShadowMap(
 	# Compute rendering device
 	local_rd : RenderingDevice,
 	heightmap_compute_shader : RID,
@@ -77,10 +77,10 @@ static func ComputeHeightMap(
 		return 
 		
 	if !local_rd.texture_is_valid(fbm_compute_rdtex):
-		push_error("Fbm RD Texture provided to ComputeHeightMap is invalid for the given RenderingDevice")
+		push_error("Fbm RD Texture provided to ComputeShadowMap is invalid for the given RenderingDevice")
 		return
 	if !local_rd.texture_is_valid(heightmap_compute_rdtex):
-		push_error("Heightmap RD Texture provided to ComputeHeightMap is invalid for the given RenderingDevice")
+		push_error("Heightmap RD Texture provided to ComputeShadowMap is invalid for the given RenderingDevice")
 		return
 	
 	# Uniforms
@@ -108,12 +108,12 @@ static func ComputeHeightMap(
 	heightmap_uniform.binding = 2
 	heightmap_uniform.add_id(heightmap_compute_rdtex)
 
-	var compute_heightmap_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform, heightmap_uniform], heightmap_compute_shader, 0)
-	var compute_heightmap_pipeline = local_rd.compute_pipeline_create(heightmap_compute_shader)
+	var compute_shadowmap_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform, heightmap_uniform], heightmap_compute_shader, 0)
+	var compute_shadowmap_pipeline = local_rd.compute_pipeline_create(heightmap_compute_shader)
 	
 	var compute_list := local_rd.compute_list_begin()
-	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_heightmap_pipeline)
-	local_rd.compute_list_bind_uniform_set(compute_list, compute_heightmap_uniform_set, 0)
+	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_shadowmap_pipeline)
+	local_rd.compute_list_bind_uniform_set(compute_list, compute_shadowmap_uniform_set, 0)
 	
 	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 8, fbm_texture_width / 8, 1)
 	local_rd.compute_list_end()

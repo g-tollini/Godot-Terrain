@@ -234,9 +234,9 @@ func compute_fbm(buffer : Array):
 	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
-func compute_heightmap(buffer : Array):
+func compute_shadowmap(buffer : Array):
 	# heightmap compute shader
-	var shader_path = "res://Scripts/Shaders/compute_heightmap.glsl"
+	var shader_path = "res://Scripts/Shaders/compute_shadowmap.glsl"
 	var shader_file = load(shader_path)
 	
 	if shader_file.get_class() != "RDShaderFile":
@@ -245,7 +245,7 @@ func compute_heightmap(buffer : Array):
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	var heightmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
-	ComputeUtils.ComputeHeightMap(compute_rd, heightmap_compute_shader, 
+	ComputeUtils.ComputeShadowMap(compute_rd, heightmap_compute_shader, 
 	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
 
 func _init():
@@ -652,7 +652,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		compute_fbm(buffer)
 		
 	if lighting_changed || (shadow_propagation && !fragment_shadows) || cumulative_shadows:
-		compute_heightmap(buffer)
+		compute_shadowmap(buffer)
 	
 	# Saving the fbm
 	if save_fbm:

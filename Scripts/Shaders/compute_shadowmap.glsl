@@ -81,7 +81,7 @@ void main()
 			shadowDepth = shadow_ray_marching(uv, fbm);
 			
 		float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
-		shadowMap.y = shadowDepth_unorm;
+		shadowMap.x = shadowDepth_unorm;
 	}
 	imageStore(heightmap, xy, shadowMap);
 }
@@ -189,12 +189,13 @@ vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv)
 	
 	vec4 shadowMap = imageLoad(heightmap, xy);
 	
-	float duv = shadowMap.z;
+	float duv = shadowMap.y;
 	
 	float height = fbm_sample_to_world_space(uv).y;
 	vec2 step_uv = uv + duv * normalize(_LightDirection.xz);
 	vec3 current_position = fbm_sample_to_world_space(step_uv);
-	float shadowDepth = 2 * shadowMap.y * _TerrainHeight;
+	float shadowDepth_unorm = shadowMap.x;
+	float shadowDepth = 2 * shadowDepth_unorm * _TerrainHeight;
 	
 	float step_size = min_step_size;
 	
@@ -213,9 +214,9 @@ vec4 shadow_cumulative_ray_marching(in ivec2 xy, in vec2 uv)
 	}
 	
 	float fbm_unorm_x = 0.5 * (height - _Offset.y) / _TerrainHeight;
-	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
+	shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
 	duv = length(step_uv - uv);
-	return vec4(fbm_unorm_x, shadowDepth_unorm, duv, 0);
+	return vec4(shadowDepth_unorm, duv, 0, 0);
 }
 
 vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
