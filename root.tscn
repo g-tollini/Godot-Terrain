@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://bs3wao3xrtlmq"]
+[gd_scene load_steps=6 format=3 uid="uid://bs3wao3xrtlmq"]
 
 [ext_resource type="Script" uid="uid://btn8i0m76hx2y" path="res://Scripts/Camera/debug_camera_controller.gd" id="1_hekff"]
 [ext_resource type="Script" uid="uid://7n58awc2ols0" path="res://Scripts/draw_terrain.gd" id="2_pyidc"]
@@ -38,8 +38,8 @@ frequency_variance = Vector2(-0.085, 0.115)
 height_scale = 90.9
 slope_damping = 0.155
 slope_threshold = Vector2(0.84, 0.98)
-low_slope_color = Color(0.366477, 0.373384, 0.0777902, 1)
-high_slope_color = Color(0.1, 0.05835, 0.049, 1)
+low_slope_color = Color(0.45954, 0.477994, 0.166009, 1)
+high_slope_color = Color(0.659184, 0.468192, 0.281765, 1)
 ambient_light = Color(0.192, 0.2712, 0.3, 1)
 heightmap_texture_width = 512
 update_heightmap = false
