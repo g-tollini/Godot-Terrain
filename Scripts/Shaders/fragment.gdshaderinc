@@ -38,13 +38,24 @@ void main() {
 	// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
 	vec3 n;
 	if (_FragmentUseHeightmap) // even when using the precomputed fbm texture for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
+	{
+		vec2 uv0 = mul0 * vec2(-uv.x, uv.y); // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
+		vec2 uv1 = mul0 * vec2(uv.x, -uv.y);
+		vec2 uv2 = mul1 * vec2(uv.x, -uv.y);
+		
+		vec2 mirrored_uv0 = vec2(1) - abs(mod(uv0, 2.0) - 1.0);
+		vec2 mirrored_uv1 = vec2(1) - abs(mod(uv1, 2.0) - 1.0);
+		vec2 mirrored_uv2 = vec2(1) - abs(mod(uv2, 2.0) - 1.0);
+		
 		n = 2 * (texture(fbmmap, uv).xyz - vec3(0.5)) +
-		  1 / (mul2) * 2 * (texture(fbmmap, mul0 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
-		+ 1 / (mul2) * 2 * (texture(fbmmap, mul0 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
-		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mul1 * vec2(uv.x, -uv.y)).xyz - vec3(0.5)) // using sqrt so that the amplitude does not decay too much
-		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mul2 * vec2(-uv.x, uv.y)).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+		  1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+		+ 1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv1).xyz - vec3(0.5))
+		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv2).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+	}
 	else
+	{
 		n = fbm(noise_pos.xz);
+	}
 	n *= _TerrainHeight;
 
 	// To more easily customize the color slope blending this is a separate normal vector with its horizontal gradients significantly reduced so the normal points upwards more
