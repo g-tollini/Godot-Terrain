@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3 uid="uid://bs3wao3xrtlmq"]
 
 [ext_resource type="Script" uid="uid://btn8i0m76hx2y" path="res://Scripts/Camera/debug_camera_controller.gd" id="1_hekff"]
-[ext_resource type="Texture2D" uid="uid://bl3rd2uo5nfcg" path="res://but.png" id="2_28aoi"]
+[ext_resource type="Texture2D" uid="uid://bhx3dpjr73rt4" path="res://but.png" id="2_28aoi"]
 [ext_resource type="Script" uid="uid://7n58awc2ols0" path="res://Scripts/draw_terrain.gd" id="2_pyidc"]
 
 [sub_resource type="Environment" id="Environment_7owt0"]
@@ -50,7 +50,8 @@ rotate_light_source = false
 rotation_speed = 0.234
 fbm_texture_width = 512
 vertex_use_fbm = true
-fragment_use_fbm = false
+fragment_use_fbm = true
+fragment_fbm_bias = 4.0
 fbm_file_name = "fbm"
 save_fbm = false
 use_imported_fbm = false

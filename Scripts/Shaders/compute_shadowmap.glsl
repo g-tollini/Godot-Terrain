@@ -26,8 +26,9 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _FrequencyVarianceUpperBound;
 	float _SlopeDamping;
 	vec4 _AmbientLight;
-	bool _VertexUsefbmmap;
-	bool _FragmentUsefbmmap;
+	bool _VertexUseFbmMap;
+	bool _FragmentUseFbmMap;
+	float _FragmentFbmMapBias;
 	float _MeshSize;
 	float _ShadowStrength;
 	float _SoftShadows;

@@ -25,6 +25,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	vec4 _AmbientLight;
 	bool _VertexUseHeightmap;
 	bool _FragmentUseHeightmap;
+	float _FragmentHeightmapBias;
 	float _MeshSize;
 	float _ShadowStrength;
 	float _SoftShadows;

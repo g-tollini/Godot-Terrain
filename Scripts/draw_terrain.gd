@@ -88,6 +88,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 ## Sample the Fbm instead of computing the noise in the vertex shader
 @export var vertex_use_fbm : bool = false # use fbm texture in vertex shader
 @export var fragment_use_fbm : bool = false # use fbm texture in fragment shader
+## Negative bias to increase the distance at which the fragment shader samples a lower LOD (higher mipmap) of the fbm texture
+@export_range(0, 4.0) var fragment_fbm_bias : float
 
 @export_subgroup("Save Settings")
 ## fbm will be saved at 'res://fbm_file_name.png'
@@ -149,12 +151,16 @@ var geometry_changed : bool = true
 var lighting_changed : bool = true
 
 # Fbmmap
+var fbm_tex_format : RDTextureFormat
+var fbm_image : Image
+var current_mip : int = 0
+var fbm_image_up_to_date : bool = false
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
 var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
 
 # Heightmap
-var heightmap_render_rdtex : RID # heightmap texture in the main rendering device
-var heightmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
+var shadowmap_render_rdtex : RID # heightmap texture in the main rendering device
+var shadowmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
 
 func init_gpu():
 	if rd == null:
@@ -180,16 +186,19 @@ func init_gpu():
 	
 	# Fbm
 	# Texture format
-	var fbm_tex_format = RDTextureFormat.new()
+	fbm_tex_format = RDTextureFormat.new()
 	fbm_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
 	fbm_tex_format.width = fbm_texture_width
 	fbm_tex_format.height = fbm_texture_width
 	fbm_tex_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT # DATA_FORMAT_R8G8B8A8_UNORM is not precise enough
 	fbm_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	
+	fbm_image = Image.create(fbm_texture_width, fbm_texture_width, true, Image.FORMAT_RGBAH)
+	
 	# Creating the textures in the render devices
 	# One for the main rendering device (the one rendering the terrain)
 	if !fbm_render_rdtex.is_valid():
+		fbm_tex_format.mipmaps = fbm_image.get_mipmap_count() + 1
 		fbm_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
 	
 	# One for the compute shader (local) rendering device
@@ -205,17 +214,18 @@ func init_gpu():
 			fbm_tex_format.depth,
 			fbm_tex_format.array_layers)
 			
-	# Heightmap
+	# ShadowMap
 	# Same as for fbm
-	if !heightmap_render_rdtex.is_valid():
-		heightmap_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
+	if !shadowmap_render_rdtex.is_valid():	
+		fbm_tex_format.mipmaps = 1
+		shadowmap_render_rdtex = rd.texture_create(fbm_tex_format, RDTextureView.new())
 		
-	if !heightmap_compute_rdtex.is_valid():
-		heightmap_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
+	if !shadowmap_compute_rdtex.is_valid():
+		shadowmap_compute_rdtex = compute_rd.texture_create_from_extension(RenderingDevice.TEXTURE_TYPE_2D,
 			fbm_tex_format.format,
 			fbm_tex_format.samples,
 			fbm_tex_format.usage_bits,
-			rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, heightmap_render_rdtex, 0),
+			rd.get_driver_resource(RenderingDevice.DRIVER_RESOURCE_TEXTURE, shadowmap_render_rdtex, 0),
 			fbm_tex_format.width,
 			fbm_tex_format.height,
 			fbm_tex_format.depth,
@@ -232,6 +242,9 @@ func compute_fbm(buffer : Array):
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	var fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
+	fbm_image_up_to_date = false
+	current_mip = 0
+	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
 func compute_shadowmap(buffer : Array):
@@ -246,7 +259,33 @@ func compute_shadowmap(buffer : Array):
 	var heightmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
 	ComputeUtils.ComputeShadowMap(compute_rd, heightmap_compute_shader, 
-	fbm_compute_rdtex, fbm_texture_width, heightmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
+	fbm_compute_rdtex, fbm_texture_width, shadowmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
+
+func compute_maximum_mipmap():
+	if current_mip == fbm_image.get_mipmap_count():
+		return
+	# Fbm compute shader
+	var shader_path = "res://Scripts/Shaders/compute_maximum_mipmap.glsl"
+	var shader_file = load(shader_path)
+	
+	if shader_file.get_class() != "RDShaderFile":
+		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+
+	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
+	var maximum_mipmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	
+	fbm_texture_gpu_readback()
+	ComputeUtils.ComputeMaximumMipMap(fbm_image, rd, fbm_render_rdtex, fbm_tex_format, compute_rd, fbm_compute_rdtex, maximum_mipmap_compute_shader, current_mip)
+	current_mip += 1
+
+func fbm_texture_gpu_readback():
+	if fbm_image_up_to_date:
+		return
+		
+	var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	fbm_image.set_data(fbm_texture_width, fbm_texture_width, true, Image.FORMAT_RGBAH, output_bytes)
+	fbm_image_up_to_date = true
+	#fbm_image.generate_mipmaps()
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -255,7 +294,6 @@ func _init():
 	var tree := Engine.get_main_loop() as SceneTree
 	var root : Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
 	if root: light = root.get_node_or_null('DirectionalLight3D')
-	
 
 func rotate_light(light : DirectionalLight3D):
 	if rotate_light_source:
@@ -405,8 +443,6 @@ func initialize_render_pipelines(framebuffer_format : int) -> void:
 	p_render_pipeline = rd.render_pipeline_create(p_shader, framebuffer_format, vertex_format, rd.RENDER_PRIMITIVE_TRIANGLES, raster_state, RDPipelineMultisampleState.new(), depth_state, blend)
 	p_wire_render_pipeline = rd.render_pipeline_create(p_wire_shader, framebuffer_format, vertex_format, rd.RENDER_PRIMITIVE_LINES, raster_state, RDPipelineMultisampleState.new(), depth_state, blend)
 
-
-
 func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if not enabled: return
 	if _effect_callback_type != effect_callback_type: return
@@ -506,6 +542,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(1.0)
 	buffer.push_back(vertex_use_fbm)
 	buffer.push_back(fragment_use_fbm)
+	buffer.push_back(fragment_fbm_bias)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(shadow_strength)
 	buffer.push_back(soft_shadows)
@@ -515,7 +552,6 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(fragment_shadows)
 	buffer.push_back(shadow_propagation)
 	buffer.push_back(cumulative_shadows && !lighting_changed)
-	buffer.push_back(1.0)
 	
 	max_step_count = int(max_step_count)
 
@@ -557,8 +593,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	# Sampler object for both textures
 	var slope_tex_sampler_state := RDSamplerState.new()
-	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
-	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
 	var slope_tex_sampler = rd.sampler_create(slope_tex_sampler_state)
 	
 	# Binding the textures created on the gpu in init_gpu() to the shader
@@ -608,7 +644,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	heightmap_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 	heightmap_uniform.binding = 4
 	heightmap_uniform.add_id(fbm_sampler)
-	heightmap_uniform.add_id(heightmap_render_rdtex)
+	heightmap_uniform.add_id(shadowmap_render_rdtex)
 	uniforms.push_back(heightmap_uniform)
 	
 	# Currently we just free the previously instantiated uniform set and then make a new one, ideally this is only done when the uniform variables change
@@ -651,20 +687,21 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if geometry_changed:
 		compute_fbm(buffer)
 		
+	#compute_maximum_mipmap()
+		
 	if lighting_changed || (shadow_propagation && !fragment_shadows) || cumulative_shadows:
 		compute_shadowmap(buffer)
 	
 	# Saving the fbm
 	if save_fbm:
 		save_fbm = false
-		var output_bytes = rd.texture_get_data(fbm_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-		var fbm_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		fbm_texture_gpu_readback()
 		fbm_image.save_png("res://" + fbm_file_name + ".png")
 		
 	# Saving the heightmap
 	if save_heightmap:
 		save_heightmap = false
-		var output_bytes = rd.texture_get_data(heightmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+		var output_bytes = rd.texture_get_data(shadowmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
 		var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 		heightmap_image.save_png("res://heightmap.png")
 
