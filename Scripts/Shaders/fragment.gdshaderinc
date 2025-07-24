@@ -47,10 +47,15 @@ void main() {
 		vec2 mirrored_uv1 = vec2(1) - abs(mod(uv1, 2.0) - 1.0);
 		vec2 mirrored_uv2 = vec2(1) - abs(mod(uv2, 2.0) - 1.0);
 		
-		n = 2 * (texture(fbmmap, uv).xyz - vec3(0.5)) +
-		  1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
-		+ 1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv1).xyz - vec3(0.5))
-		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv2).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+		float bias_uv = - _FragmentHeightmapBias;
+		float bias_uv0 = - 2 * _FragmentHeightmapBias;
+		float bias_uv1 = - 2 * _FragmentHeightmapBias;
+		float bias_uv2 = - 4 * _FragmentHeightmapBias;
+		
+		n = 2 * (texture(fbmmap, uv, bias_uv).xyz - vec3(0.5)) +
+		  1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+		+ 1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv1, bias_uv1).xyz - vec3(0.5))
+		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv2, bias_uv2).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
 	}
 	else
 	{
