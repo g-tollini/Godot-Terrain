@@ -559,7 +559,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(soft_shadows)
 	buffer.push_back(adaptive_step_size_coeff)
 	buffer.push_back(min_step_size)
-	buffer.push_back(max_step_count * cumulative_steps_ratio if cumulative_shadows && !fragment_shadows else max_step_count)
+	buffer.push_back(max_step_count * cumulative_steps_ratio if cumulative_shadows && !lighting_changed && !fragment_shadows else max_step_count)
 	buffer.push_back(stop_on_hit)
 	buffer.push_back(binary_shadows)
 	buffer.push_back(cumulative_shadows && !lighting_changed)

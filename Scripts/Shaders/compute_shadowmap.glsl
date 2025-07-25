@@ -143,16 +143,21 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	int max_steps = 100;
 	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
-	int remaining_steps = clamp(1, max_steps, int(_ShadowMaxStepCount));
+	int remaining_steps = int(_ShadowMaxStepCount);
 	
 	vec4 shadowMap = vec4(0);
 	if (_CumulativeRayMarching)
+	{
 		shadowMap = imageLoad(shadowmap, xy);
+		if (_ShadowStopOnHit && shadowMap.w > 0)
+			return shadowMap;
+	}
 	
 	float shadowDepth = 2 * shadowMap.x * _TerrainHeight;
 	float duv = shadowMap.y; // != 0 only when _CumulativeRayMarching
 	float num_steps = shadowMap.z;
-	float shadow_at_step = shadowMap.w;
+	float shadow_at_step = shadowMap.w;	
+		
 	float height = fbm_sample_to_world_space(uv).y;
 	
 	vec2 step_uv = uv + duv * _LightDirection.xz; // resume to where the previous ray marching stopped
@@ -165,7 +170,7 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 		all(lessThanEqual(step_uv, vec2(1))) &&
 		all(greaterThanEqual(step_uv, vec2(0))) )
 	{
-		num_steps += 1 / float(max_steps);
+		num_steps += 1 / _ShadowMaxStepCount;
 		current_position = fbm_sample_to_world_space(step_uv);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
 		if (_CumulativeRayMarching)

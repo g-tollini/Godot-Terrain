@@ -135,21 +135,27 @@ void main() {
 		}
 
 		// Apply shadows
-		lit *= mix(1 - shadow, (1 - shadow) * (1 - shadow), 0.1);
+		lit *= mix(1 - shadow, sqrt(1 - shadow), 0.2);
 		lit.a = 1;
 	}
 	
 	// Shadowmap ray marching number of steps heatmap
-	vec3 cold = vec3(0.2, 0.3, 0.7); // blue
-	vec3 medium = vec3(0.9, 0.8, 0.2); // yellow
-	vec3 hot = vec3(1, 0.1, 0.1); // red
+	vec3 cold = vec3(0.4, 0.7, 0.4); // blue
+	vec3 cold_medium = vec3(0.5, 0.5, 0.8); // yellow
+	vec3 medium_hot = vec3(0.9, 0.6, 0.2); // orange
+	vec3 hot = vec3(1, 0.2, 0.1); // red
 	
 	vec3 heat;
 	float value = shadowMap.z;
-	if (value < 0.5)
-		heat = mix(cold, medium, 2.0 * value);
+	float threshold0 = 0.4;
+	float threshold1 = 0.8;
+	if (value < threshold0)
+		heat = mix(cold, cold_medium, value / threshold0);
+	else if (value < threshold1)
+		heat = mix(cold_medium, medium_hot, (value - threshold0) / (threshold1 - threshold0));
 	else
-		heat = mix(medium, hot, 2.0 * (value - 0.5));
+		heat = mix(medium_hot, hot, (value - threshold1) / (1 - threshold1));
+
 		
 	if	(_RayStepsHeatmap)
 		lit = vec4(heat, 1);
@@ -167,8 +173,7 @@ vec4 shadow_ray_marching(in vec3 position)
 	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
 	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
-	int max_steps = 100;
-	int remaining_steps = clamp(1, max_steps, int(_ShadowMaxStepCount));
+	int remaining_steps = int(_ShadowMaxStepCount);
 
 	vec3 current_position = position;
 	vec3 n = fragment_fbm(position);
@@ -179,19 +184,21 @@ vec4 shadow_ray_marching(in vec3 position)
 
 	float step_size = min_step_size;
 	float num_steps = 0;
+	float shadow_at_step = 0;
 	current_position += step_size * _LightDirection;
 
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
 		all(greaterThanEqual(current_position.xz, pos_min.xz)) )
 	{
-		num_steps += 1 / float(max_steps);
+		num_steps += 1 / _ShadowMaxStepCount;
 		n = fragment_fbm(current_position);
 		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 		float rayDeltaHeight = length((current_position - position).xz) * abs(_LightDirection.y);
 		if (height + rayDeltaHeight < current_position.y)
 		{
 			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
+			shadow_at_step = num_steps;
 			if (_ShadowStopOnHit)
 				remaining_steps = 0;
 		}
@@ -202,7 +209,7 @@ vec4 shadow_ray_marching(in vec3 position)
 		remaining_steps--;
 	}
 	
-	return vec4(0.5 * shadowDepth / _TerrainHeight, 0, num_steps, 0);
+	return vec4(0.5 * shadowDepth / _TerrainHeight, 0, num_steps, shadow_at_step);
 }
 
 vec3 fragment_fbm(vec3 position)
