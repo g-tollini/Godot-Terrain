@@ -26,14 +26,21 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _FrequencyVarianceUpperBound;
 	float _SlopeDamping;
 	vec4 _AmbientLight;
-	bool _VertexUseHeightmap;
-	bool _FragmentUseHeightmap;
-	float _FragmentHeightmapBias;
+	bool _VertexUseFbmMap;
+	bool _FragmentUseFbmMap;
+	float _FragmentFbmMapBias;
 	float _MeshSize;
+	bool _EnableCastShadows;
 	float _ShadowStrength;
 	float _SoftShadows;
 	float _ShadowAdaptiveStepSize;
+	float _ShadowMinStepSize;
+	float _ShadowMaxStepCount;
+	bool _ShadowStopOnHit;
+	bool _BinaryShadows;
+	bool _CumulativeRayMarching;
 	bool _FragmentShadows;
+	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
 };
 
