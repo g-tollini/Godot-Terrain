@@ -158,6 +158,8 @@ void main() {
 	frag_color = pow(lit, vec4(2.2));
 }
 
+vec3 fragment_fbm(vec3 position);
+
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
 vec4 shadow_ray_marching(in vec3 position)
 {
@@ -169,24 +171,22 @@ vec4 shadow_ray_marching(in vec3 position)
 	int remaining_steps = clamp(1, max_steps, int(_ShadowMaxStepCount));
 
 	vec3 current_position = position;
-	vec3 current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
-	vec3 n = fbm(current_noise_pos.xz);
+	vec3 n = fragment_fbm(position);
+	
 	current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 	float height = current_position.y;
 	float shadowDepth = 0;
 
 	float step_size = min_step_size;
 	float num_steps = 0;
+	current_position += step_size * _LightDirection;
 
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
 		all(greaterThanEqual(current_position.xz, pos_min.xz)) )
 	{
-		vec3 next_step = step_size * _LightDirection;
-		current_position += next_step;
-			
-		current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
-		n = fbm(current_noise_pos.xz);
+		num_steps += 1 / float(max_steps);
+		n = fragment_fbm(current_position);
 		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 		float rayDeltaHeight = length((current_position - position).xz) * abs(_LightDirection.y);
 		if (height + rayDeltaHeight < current_position.y)
@@ -196,9 +196,26 @@ vec4 shadow_ray_marching(in vec3 position)
 				remaining_steps = 0;
 		}
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
-		num_steps += 1 / float(max_steps);
+		
+		vec3 next_step = step_size * _LightDirection;
+		current_position += next_step;
 		remaining_steps--;
 	}
 	
 	return vec4(0.5 * shadowDepth / _TerrainHeight, 0, num_steps, 0);
+}
+
+vec3 fragment_fbm(vec3 position)
+{
+	if (_FragmentUseFbmMap)
+	{
+		vec2 uv = position.xz / _MeshSize + vec2(0.5);
+		vec3 fbm_unorm = texture(fbmmap, uv, -_FragmentFbmMapBias).xyz;
+		return 2 * (fbm_unorm - vec3(0.5));
+	}
+	else
+	{
+		vec3 noise_position = (position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
+		return fbm(noise_position.xz);
+	}
 }

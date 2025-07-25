@@ -155,19 +155,18 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	float shadow_at_step = shadowMap.w;
 	float height = fbm_sample_to_world_space(uv).y;
 	
-	vec2 step_uv = uv + duv * normalize(_LightDirection.xz); // resume to where the previous ray marching stopped
+	vec2 step_uv = uv + duv * _LightDirection.xz; // resume to where the previous ray marching stopped
 	vec3 current_position = fbm_sample_to_world_space(step_uv);
 	
 	float step_size = min_step_size;
+	step_uv += step_size * _LightDirection.xz / _MeshSize;
 	
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(step_uv, vec2(1))) &&
 		all(greaterThanEqual(step_uv, vec2(0))) )
 	{
-		vec3 next_step = step_size * _LightDirection;
-		step_uv += next_step.xz / _MeshSize;
-		current_position = fbm_sample_to_world_space(step_uv);
 		num_steps += 1 / float(max_steps);
+		current_position = fbm_sample_to_world_space(step_uv);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
 		if (_CumulativeRayMarching)
 		{
@@ -182,7 +181,7 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 				if (_ShadowStopOnHit)
 					remaining_steps = 0;
 			}
-			step_uv += current_step_duv * normalize(_LightDirection.xz);
+			step_uv += current_step_duv * _LightDirection.xz;
 		}
 		else if (height + rayDeltaHeight < current_position.y)
 		{
@@ -192,6 +191,8 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 				remaining_steps = 0;
 		}
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
+		
+		step_uv += step_size * _LightDirection.xz / _MeshSize;
 		remaining_steps--;
 	}
 	
