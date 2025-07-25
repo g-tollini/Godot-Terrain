@@ -3,8 +3,8 @@
 #include "Scripts/Shaders/buffer.gdshaderinc"
 #include "Scripts/Shaders/noise.gdshaderinc"
 
-// Heightmap
-layout(set = 0, binding = 3) uniform sampler2D heightmap;
+// Fbm map
+layout(set = 0, binding = 3) uniform sampler2D fbmmap;
 
 // This is the vertex data layout that we defined in initialize_render after line 198
 layout(location = 0) in vec3 a_Position;
@@ -31,8 +31,8 @@ void main() {
 
 	// The fractional brownian motion
 	vec3 n;
-	if (_VertexUseHeightmap)
-		n = 2 * (texture(heightmap, uv).xyz - vec3(0.5));
+	if (_VertexUseFbmMap)
+		n = 2 * (texture(fbmmap, uv).xyz - vec3(0.5));
 	else
 		n = fbm(noise_pos.xz);
 

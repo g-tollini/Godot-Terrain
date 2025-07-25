@@ -10,8 +10,8 @@ layout(set = 0, binding = 2) uniform sampler2D high_slope_texture;
 // Precomputed fbm texture
 layout(set = 0, binding = 3) uniform sampler2D fbmmap;
 
-// Heightmap
-layout(set = 0, binding = 4) uniform sampler2D heightmap;
+// ShadowMap
+layout(set = 0, binding = 4) uniform sampler2D shadowmap;
 
 // These are the variables that we expect to receive from the vertex shader
 layout(location = 2) in vec4 a_Color;
@@ -21,7 +21,7 @@ layout(location = 3) in vec3 pos;
 layout(location = 0) out vec4 frag_color;
 
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
-float shadow_ray_marching(in vec3 position);
+vec4 shadow_ray_marching(in vec3 position);
 
 void main() {
 	// Recalculate initial noise sampling position same as vertex shader
@@ -37,7 +37,7 @@ void main() {
 
 	// Calculate fbm, we don't care about the height just the derivatives here for the normal vector so the ` + _TerrainHeight - _Offset.y` drops off as it isn't relevant to the derivative
 	vec3 n;
-	if (_FragmentUseHeightmap) // even when using the precomputed fbm texture for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
+	if (_FragmentUseFbmMap) // even when using the precomputed fbm texture for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
 	{
 		vec2 uv0 = mul0 * vec2(-uv.x, uv.y); // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
 		vec2 uv1 = mul0 * vec2(uv.x, -uv.y);
@@ -47,10 +47,10 @@ void main() {
 		vec2 mirrored_uv1 = vec2(1) - abs(mod(uv1, 2.0) - 1.0);
 		vec2 mirrored_uv2 = vec2(1) - abs(mod(uv2, 2.0) - 1.0);
 		
-		float bias_uv = - _FragmentHeightmapBias;
-		float bias_uv0 = - 2 * _FragmentHeightmapBias;
-		float bias_uv1 = - 2 * _FragmentHeightmapBias;
-		float bias_uv2 = - 4 * _FragmentHeightmapBias;
+		float bias_uv = - _FragmentFbmMapBias;
+		float bias_uv0 = - 2 * _FragmentFbmMapBias;
+		float bias_uv1 = - 2 * _FragmentFbmMapBias;
+		float bias_uv2 = - 4 * _FragmentFbmMapBias;
 		
 		n = 2 * (texture(fbmmap, uv, bias_uv).xyz - vec3(0.5)) +
 		  1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
@@ -102,50 +102,71 @@ void main() {
 	// Combine lighting values, clip to prevent pixel values greater than 1 which would really really mess up the gamma correction below
 	vec4 lit = clamp(direct_light + ambient_light, vec4(0), vec4(1));
 
+	vec4 shadowMap;
 	float shadow = 0; // 0 means no shadow, 1 means completely dark
-	if (_ShadowStrength != 0)
+	if (_EnableCastShadows && _ShadowStrength != 0)
 	{
-		float shadowDepth = 0; // how far above the terrain the light / shadow limit is
 		// Compute shadows
 		if (_FragmentShadows)
-		{
-			shadowDepth = shadow_ray_marching(pos);
-		}
+			shadowMap = shadow_ray_marching(pos);
 		else
-		{
-			vec4 heightmap_sample = texture(heightmap, uv);
-			float shadowDepth_unorm = heightmap_sample.x;
-			shadowDepth = max(2 * shadowDepth_unorm * _TerrainHeight, 0);
-		}
+			shadowMap = texture(shadowmap, uv);
+			
+		float shadowDepth_unorm = shadowMap.x;
+		float shadowDepth = max(2 * shadowDepth_unorm * _TerrainHeight, 0); // how far above the terrain the light / shadow limit is
 		shadow = _ShadowStrength * clamp(0, 1 / _ShadowStrength, 0.5 * shadowDepth / _TerrainHeight);
+		
+		float light_shadow_threshold = 0.005;
+		if (shadow > light_shadow_threshold || (_ShadowStopOnHit && shadow > 0))
+		{
+			float base_shadow_strength = (1 - _SoftShadows) / 10.0;
+			
+			shadow = base_shadow_strength + clamp(0, 1 - base_shadow_strength, shadow); // hard shadows
+			
+			float soft = 1;
+			if (!_ShadowStopOnHit)
+			{
+				float soft_shadow_slider_coeff = 0.15; // to limit the _SoftShadows slider values (in [0 ; 1]) to values that look good
+				soft = smoothstep(light_shadow_threshold, light_shadow_threshold + soft_shadow_slider_coeff * _SoftShadows, shadow); // soft shadows
+			}
+			if (_BinaryShadows)
+				shadow = (_ShadowStrength / 10.0);
+			shadow = shadow * soft;
+		}
+
+		// Apply shadows
+		lit *= mix(1 - shadow, (1 - shadow) * (1 - shadow), 0.1);
+		lit.a = 1;
 	}
 	
-	// Smooth shadows
-	float base_shadow_strength = (1 - _SoftShadows) / 10.0;
-	float light_shadow_threshold = 0.05;
-	float soft_shadow_slider_coeff = 0.15; // to limit the _SoftShadows slider values (in [0 ; 1]) to values that look good
-	if (shadow > 0.005)
-	{
-		shadow = base_shadow_strength + clamp(0, 1 - base_shadow_strength, shadow); // hader shadows
-		shadow *= smoothstep(light_shadow_threshold, light_shadow_threshold + soft_shadow_slider_coeff * _SoftShadows, shadow); // softer shadows
-	}
-
-	// Apply shadows
-	lit *= 0.5 * (1 - shadow + (1 - shadow) * (1 - shadow));
-	lit.a = 1;
+	// Shadowmap ray marching number of steps heatmap
+	vec3 cold = vec3(0.2, 0.3, 0.7); // blue
+	vec3 medium = vec3(0.9, 0.8, 0.2); // yellow
+	vec3 hot = vec3(1, 0.1, 0.1); // red
+	
+	vec3 heat;
+	float value = shadowMap.z;
+	if (value < 0.5)
+		heat = mix(cold, medium, 2.0 * value);
+	else
+		heat = mix(medium, hot, 2.0 * (value - 0.5));
+		
+	if	(_RayStepsHeatmap)
+		lit = vec4(heat, 1);
 
 	// Convert from linear rgb to srgb for proper color output, ideally you'd do this as some final post processing effect because otherwise you will need to revert this gamma correction elsewhere
 	frag_color = pow(lit, vec4(2.2));
 }
 
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
-float shadow_ray_marching(in vec3 position)
+vec4 shadow_ray_marching(in vec3 position)
 {
 	vec3 pos_min = -0.5 * _MeshSize * vec3(1);
 	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
 	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
 	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
-	int remaining_steps = clamp(1, 100, int(_ShadowMaxStepCount));
+	int max_steps = 100;
+	int remaining_steps = clamp(1, max_steps, int(_ShadowMaxStepCount));
 
 	vec3 current_position = position;
 	vec3 current_noise_pos = (current_position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
@@ -155,6 +176,7 @@ float shadow_ray_marching(in vec3 position)
 	float shadowDepth = 0;
 
 	float step_size = min_step_size;
+	float num_steps = 0;
 
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
@@ -168,10 +190,15 @@ float shadow_ray_marching(in vec3 position)
 		current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 		float rayDeltaHeight = length((current_position - position).xz) * abs(_LightDirection.y);
 		if (height + rayDeltaHeight < current_position.y)
+		{
 			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
+			if (_ShadowStopOnHit)
+				remaining_steps = 0;
+		}
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
+		num_steps += 1 / float(max_steps);
 		remaining_steps--;
 	}
 	
-	return shadowDepth;
+	return vec4(0.5 * shadowDepth / _TerrainHeight, 0, num_steps, 0);
 }
