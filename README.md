@@ -7,6 +7,8 @@ Acerola's Dirt Jam
 Terrain is generated using a noise function (fbm) for vertices displacement and shading. Originally the function is evaluated in both the vertex and fragment shaders. 
 This branch explores sampling the fbm once and storing the result in a texture so that the shaders can avoid re computing the values each draw
 
+![heightmap_in_editor.png](doc/heightmap_in_editor.png)
+
 ## What is there to learn
 
 Texture size matters. Width / height must be close to the number of vertices per side, but the number of bits per channel is even more important
