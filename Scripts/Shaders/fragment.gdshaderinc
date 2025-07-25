@@ -39,23 +39,30 @@ void main() {
 	vec3 n;
 	if (_FragmentUseFbmMap) // even when using the precomputed fbm texture for the vertex displacement, evaluating the fbm for each fragment instead of interpolating the sampled values gives a way better shading
 	{
-		vec2 uv0 = mul0 * vec2(-uv.x, uv.y); // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
-		vec2 uv1 = mul0 * vec2(uv.x, -uv.y);
-		vec2 uv2 = mul1 * vec2(uv.x, -uv.y);
+		vec2 uv0 = (mul0 + 1) * vec2(-uv.x, uv.y); // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
+		vec2 uv1 = (mul1 + 1) * vec2(uv.x, -uv.y); // adding +1 so that the frequency multiplicators are not multiple of each other which would produce straight lines in some places
 		
 		vec2 mirrored_uv0 = vec2(1) - abs(mod(uv0, 2.0) - 1.0);
 		vec2 mirrored_uv1 = vec2(1) - abs(mod(uv1, 2.0) - 1.0);
-		vec2 mirrored_uv2 = vec2(1) - abs(mod(uv2, 2.0) - 1.0);
 		
 		float bias_uv = - _FragmentFbmMapBias;
 		float bias_uv0 = - 2 * _FragmentFbmMapBias;
 		float bias_uv1 = - 2 * _FragmentFbmMapBias;
-		float bias_uv2 = - 4 * _FragmentFbmMapBias;
 		
 		n = 2 * (texture(fbmmap, uv, bias_uv).xyz - vec3(0.5)) +
-		  1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
-		+ 1 / (mul2) * 2 * (texture(fbmmap, mirrored_uv1, bias_uv1).xyz - vec3(0.5))
-		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv2, bias_uv2).xyz - vec3(0.5)); // we actually increase the amplitude of the sample with the frequency, we should be doing the opposite but this gives better results imo
+		  1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
+		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv1, bias_uv1).xyz - vec3(0.5));
+		
+		if (true) // should be based fragment distance to camera
+		{
+			// Enhance terrain appearance when looking closely using perlin noise
+			float mul = 300;
+			vec2 uv_noise = mul * noise_pos.xz;
+			
+			n += 1.2 * ( 1 / sqrt(mul1) * perlin_noise2D(uv_noise)
+				+ 1 / sqrt(mul1) * perlin_noise2D(2 * uv_noise)
+				+ 1 / sqrt(mul1) * perlin_noise2D(4 * uv_noise));
+		}
 	}
 	else
 	{
