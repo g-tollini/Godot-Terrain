@@ -6,6 +6,8 @@ Acerola's Dirt Jam
 
 Cast shadows or 'analytical shadows' using the noise function, either 'pixel-perfect' ie computed each frame in the fragment shader, or computed once and stored in a texture that we will call shadow map, using three techniques.
 
+![shadows_in_editor](doc/shadows_in_editor.png)
+
 The first and **main technique is ray marching**, and is implemented for both **shadow map** and **fragment shader**. The other techniques only work with the shadow map as the result is computed over multiple frames and stored in the texels. 
 
 The second technique is also ray marching but with slight changes that allow to span the computation across multiple frames, reusing the results of the previous frame. This allows to remove the limitation of the number of steps per ray. 
