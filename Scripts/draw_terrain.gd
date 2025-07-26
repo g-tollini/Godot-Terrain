@@ -122,6 +122,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export var ray_steps_heatmap : bool = false
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
 @export var shadow_propagation : bool = false
+## The v axis (of UVs) of the shadowmap is oriented towards the light source
+@export var rotate_shadowmap_towards_light : bool = false
 @export var save_shadowmap : bool = false
 
 var transform : Transform3D
@@ -560,21 +562,21 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(adaptive_step_size_coeff)
 	buffer.push_back(min_step_size)
 	buffer.push_back(max_step_count)
-	buffer.push_back(0 if lighting_changed else cumulative_steps_ratio)
+	buffer.push_back(cumulative_steps_ratio)
 	buffer.push_back(stop_on_hit)
 	buffer.push_back(binary_shadows)
 	buffer.push_back(cumulative_shadows && !lighting_changed)
 	buffer.push_back(fragment_shadows)
 	buffer.push_back(ray_steps_heatmap)
 	buffer.push_back(shadow_propagation)
-	buffer.push_back(1.0)
+	buffer.push_back(rotate_shadowmap_towards_light)
 	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 	
 	max_step_count = int(max_step_count)
 
 	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
-	var values_affecting_lighting : Array = [light_direction, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, binary_shadows]
+	var values_affecting_lighting : Array = [light_direction, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, binary_shadows, rotate_shadowmap_towards_light]
 	var geometry_hash = values_affecting_geometry.hash()
 	var lighting_hash = values_affecting_lighting.hash()
 	

@@ -43,7 +43,10 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _FragmentShadows;
 	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
+	bool _RotateShadowMapTowardsLight;
 };
+
+#define PI 3.141592653589793238462
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
 layout(set = 0, binding = 2, rgba16f) restrict uniform image2D shadowmap;
@@ -54,6 +57,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // Two techniques for computing shadow height. The functions return the shadow height for texel xy
 vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv);
+
+vec2 uv_shadowmap_to_terrain(in vec2 uv);
 
 void main()
 {
@@ -74,13 +79,42 @@ void main()
 	float height = fbm.x;
 	
 	float shadowDepth = 0;
-	vec4 shadowMap = vec4(fbm_unorm.x, 0, 0, 0);
-	if (_ShadowPropagation)
+	vec4 shadowMap = vec4(0);
+	
+	if (_RotateShadowMapTowardsLight)
+		uv = uv_shadowmap_to_terrain(uv);
+	
+	if (any(greaterThanEqual(uv, vec2(1))) ||
+		any(lessThanEqual(uv, vec2(0))) )
+		shadowMap = vec4(0);
+	else if (_ShadowPropagation)
 		shadowMap = shadow_propagation(xy, dimensions, uv, fbm);
 	else
 		shadowMap = shadow_ray_marching(xy, uv);
 	
 	imageStore(shadowmap, xy, shadowMap);
+}
+
+vec2 uv_shadowmap_to_terrain(in vec2 uv)
+{
+	vec2 l = normalize(_LightDirection.xz);
+	float nl = dot(l, l);
+	float cos_theta = l.y / nl;
+	float sin_theta = -l.x / nl;
+	
+	float theta = atan(l.x, l.y);
+	float phi = PI / 4.0 - mod(theta, PI / 2.0);
+	float a_p = sqrt(2) * cos(phi);
+	
+	vec2 uv_p = uv - vec2(0.5);
+	uv_p = a_p * vec2(
+		uv_p.x * cos_theta - uv_p.y * sin_theta, 
+		uv_p.x * sin_theta + uv_p.y * cos_theta);
+	uv_p += vec2(0.5);
+	
+	uv_p = clamp(vec2(0), vec2(1), uv_p);
+	
+	return uv_p;
 }
 
 vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
