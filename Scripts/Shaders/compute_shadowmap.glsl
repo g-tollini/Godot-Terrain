@@ -36,6 +36,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _ShadowAdaptiveStepSize;
 	float _ShadowMinStepSize;
 	float _ShadowMaxStepCount;
+	float _ShadowCumulativeStepsRatio;
 	bool _ShadowStopOnHit;
 	bool _BinaryShadows;
 	bool _CumulativeRayMarching;
@@ -146,8 +147,12 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	int remaining_steps = int(_ShadowMaxStepCount);
 	
 	vec4 shadowMap = vec4(0);
+	if (_ShadowCumulativeStepsRatio == 0) // clearing the texture
+		return shadowMap;
+	
 	if (_CumulativeRayMarching)
 	{
+		remaining_steps = int(max(1.0, _ShadowMaxStepCount * _ShadowCumulativeStepsRatio));
 		shadowMap = imageLoad(shadowmap, xy);
 		if (_ShadowStopOnHit && shadowMap.w > 0)
 			return shadowMap;
