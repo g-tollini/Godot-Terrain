@@ -44,7 +44,15 @@ For depth shadows, the ray now must **keep marching even after it hit some terra
 This technique may require a large amount of steps, in particular when a fragment in a valley is blocked by two mountains, the further one being the taller one. For the ray to reach the taller mountain it will have to march over the smaller one, but since it follows it's relief the adaptative stepping give only small steps.
 ![shadow_depth_and_cumulative_ray_marching](doc/shadow_depth_and_cumulative_ray_marching.png)
 
-To overcome this and remove the steps limit, we can ray march over multiple frames (referred as cumulative ray marching in the code). Each frame, we reuse the previous ray marching, since the ray length and shadow depths is stored in each texel, we can take **larger and larger steps** as the texels we encounter will tell us how far the shadow is or isn't from their position. **This technique is computationally more efficient but spans over multiple frames**.
+To overcome this and remove the steps limit, we can ray march multiple times, each time using the previous results (referred as cumulative ray marching in the code). Since the ray length and shadow depths is stored in each texel, each successive raymarching can take **larger and larger steps** as the texels encountered will tell how far the shadow is or isn't from the current position. 
+
+**This technique is computationally more efficient but requires scheduling the raymarching compute shader multiple times**.
+
+One possibility is to schedule the ray marching once per frame. The result produced can be seen in the third row of the image above. The shadows are accurate but we see some square artifacts in the heatmap. These artifacts are caused by the compute shader thread groups reading shadowmap data from other thread groups (thus without being synchronized). This does not have a negative impact on the shadows, but can slightly increase or decrease the number of steps that the current thread group will take to reach the terrain bounds, which we see in the heatmap.
+
+The problem with scheduling ray marching each step is when we update the lighting we will need multiple frames untill the shadows are accurate. If we use the rotate light source toggle then the shadows will disappear because each frame the lighting changes thus the cumulative ray marching starts from scratch and the results do not have enough steps to produce shadows.
+
+To counter this we can try to accumulate multiple ray marching in one frame using barrier syncs. Yet as it is each thread group samples texels from other groups so we will encounter the same problem. This time this affects negatively the shadows as shows the last row of the image above. To fix this we could rotate the shadowmap so that one direction is aligned with the light direction, and use thread groups that cover the entire span of the map in this direction (ie x=512, y=1, z=1).
 
 ---
 
