@@ -73,7 +73,7 @@ void main() {
 	float material_blend_factor = smoothstep(_SlopeRange.x, _SlopeRange.y, 1 - slope_normal.y);
 
 	// This is the actual surface normal vector
-	vec3 normal = normalize(vec3(-n.y, 1, -n.z));
+	vec3 normal = normalize(vec3(-n.y, _Scale, -n.z));
 
 	// Texturing
 	// Horizontal
