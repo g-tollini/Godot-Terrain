@@ -214,7 +214,8 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
 		if (_CumulativeRayMarching)
 		{
-			vec4 current_step_shadowMap = shadowmap_bilinear_sample(step_uv);
+			vec2 shadowmap_uv = _RotateShadowMapTowardsLight ? uv_terrain_to_shadowmap(step_uv) : step_uv;
+			vec4 current_step_shadowMap = shadowmap_bilinear_sample(shadowmap_uv);
 			float current_step_shadowDepth = 2 * current_step_shadowMap.x * _TerrainHeight;
 			float current_step_duv = current_step_shadowMap.y;
 			float current_step_new_ShadowDepth = current_position.y + current_step_shadowDepth - height - rayDeltaHeight;
