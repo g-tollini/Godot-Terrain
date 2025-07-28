@@ -54,6 +54,13 @@ The problem with scheduling ray marching each step is when we update the lightin
 
 To counter this we can try to accumulate multiple ray marching in one frame using barrier syncs. Yet as it is each thread group samples texels from other groups so we will encounter the same problem. This time this affects negatively the shadows as shows the last row of the image above. To fix this we could rotate the shadowmap so that one direction is aligned with the light direction, and use thread groups that cover the entire span of the map in this direction (ie x=512, y=1, z=1).
 
+![rotated_shadowmap_propagation](doc/rotated_shadowmap_propagation.png)
+This is what the rotated shadowmap propagation technique is, as showed in picture above.
+
+The technique requires only log2(shadowmap_height) steps, which is the lowest number across all techniques. Also each step is computationally very cheap, it is 1 read, comparison and write back into a cache array. Each step has to be synchronized so that the read and write occur in the correct odrder across all threads of the same group, each group being dedicated to 1 column of the shadowmap as the y axis is aligned with the light direction.
+
+I'm assuming this is the most optimized technique of all, but is less scalable than basic fragment shader ray marching for example.
+
 ---
 
 by Acerola
