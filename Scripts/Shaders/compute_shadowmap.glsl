@@ -36,23 +36,39 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _ShadowAdaptiveStepSize;
 	float _ShadowMinStepSize;
 	float _ShadowMaxStepCount;
+	float _ShadowCumulativeStepsRatio;
 	bool _ShadowStopOnHit;
 	bool _BinaryShadows;
 	bool _CumulativeRayMarching;
 	bool _FragmentShadows;
 	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
+	bool _RotateShadowMapTowardsLight;
 };
+
+#define PI 3.141592653589793238462
+#define THREAD_GROUP_SIZE_Y 512
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
 layout(set = 0, binding = 2, rgba16f) restrict uniform image2D shadowmap;
 
 // Thread groups size
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = 1, local_size_y = THREAD_GROUP_SIZE_Y, local_size_z = 1) in;
 
 // Two techniques for computing shadow height. The functions return the shadow height for texel xy
 vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
+vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv);
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv);
+
+// Samples fbm texture and returns point coordinates in world space
+vec3 fbm_sample_to_world_space(in vec2 uv); // with sampling
+vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
+vec4 shadowmap_bilinear_sample(in vec2 uv);
+
+vec2 uv_shadowmap_to_terrain(in vec2 uv);
+vec2 uv_terrain_to_shadowmap(in vec2 uv);
+
+shared float line_cache[THREAD_GROUP_SIZE_Y];
 
 void main()
 {
@@ -73,11 +89,35 @@ void main()
 	float height = fbm.x;
 	
 	float shadowDepth = 0;
-	vec4 shadowMap = vec4(fbm_unorm.x, 0, 0, 0);
-	if (_ShadowPropagation)
-		shadowMap = shadow_propagation(xy, dimensions, uv, fbm);
+	vec4 shadowMap = vec4(0);
+	
+	if (_RotateShadowMapTowardsLight)
+	{
+		uv = uv_shadowmap_to_terrain(uv);
+		if (_ShadowPropagation)
+		{
+			int y = int(gl_LocalInvocationID.y);
+			line_cache[y] = 0;
+		}
+	}
+	
+	if (_ShadowCumulativeStepsRatio == 0 || //_ShadowCumulativeStepsRatio at 0 is used as a flag to reset the texels values
+		any(greaterThanEqual(uv, vec2(1))) ||
+		any(lessThanEqual(uv, vec2(0))) )
+	{
+		shadowMap = vec4(0);
+	}
+	else if (_ShadowPropagation)
+	{
+		if (_RotateShadowMapTowardsLight)
+			shadowMap = rotated_shadowmap_height_propagation(xy, dimensions, uv);
+		else
+			shadowMap = shadow_propagation(xy, dimensions, uv, fbm);
+	}
 	else
+	{
 		shadowMap = shadow_ray_marching(xy, uv);
+	}
 	
 	imageStore(shadowmap, xy, shadowMap);
 }
@@ -130,13 +170,62 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
 	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
 	
-	return vec4(shadowDepth_unorm, 0, 0, 0);
+	vec4 shadowMap = imageLoad(shadowmap, xy);
+	float current_shadowDepth_unorm = shadowMap.x;
+	if (shadowDepth_unorm > current_shadowDepth_unorm)
+	{
+		shadowMap.x = shadowDepth_unorm;
+		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / float(_ShadowMaxStepCount));
+	}
+	
+	return shadowMap;
 }
 
-// Samples fbm texture and returns point coordinates in world space
-vec3 fbm_sample_to_world_space(in vec2 uv); // with sampling
-vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
-vec4 shadowmap_bilinear_sample(in vec2 uv);
+vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
+{
+	int y = int(gl_LocalInvocationID.y);
+	vec2 terrain_uv = uv;
+	float terrain_height_unorm = texture(fbmmap, terrain_uv).x;
+	float shadow_height_unorm = terrain_height_unorm;
+	
+	vec2 l = normalize(_LightDirection.xz);
+	float nl = dot(l, l);
+	float cos_theta = l.y / nl;
+	float sin_theta = - (-l.x / nl);
+	
+	float theta = -atan(l.x, l.y);
+	float phi = PI / 4.0 - mod(theta, PI / 2.0);
+	float a_p = sqrt(2) * cos(phi);
+	float decay_unorm = 0.5 * _LightDirection.y * _MeshSize / float(dimensions.y) * a_p / _TerrainHeight;
+	
+	line_cache[y] = shadow_height_unorm;
+	memoryBarrierShared();
+	barrier();
+	
+	int max_steps = min(int(ceil(log2(THREAD_GROUP_SIZE_Y))), int(_ShadowMaxStepCount));
+	
+	int step_size_y = 1;
+	int step = 0;
+	int shadow_at_step = 0;
+	
+	while (step < max_steps)
+	{
+		float towards_light_shadow_height_unorm = line_cache[min(y + step_size_y, THREAD_GROUP_SIZE_Y - 1)];
+		if (towards_light_shadow_height_unorm - step_size_y * decay_unorm > shadow_height_unorm)
+		{
+			shadow_height_unorm = towards_light_shadow_height_unorm - step_size_y * decay_unorm;
+			shadow_at_step = step;
+		}
+		
+		line_cache[y] = shadow_height_unorm;
+		memoryBarrierShared();
+		barrier();
+		step_size_y = 2 * step_size_y + 1;
+		step++;
+	}
+	
+	return vec4(shadow_height_unorm - terrain_height_unorm, 0, float(shadow_at_step) / float(_ShadowMaxStepCount), 0);
+}
 
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 {
@@ -146,8 +235,12 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	int remaining_steps = int(_ShadowMaxStepCount);
 	
 	vec4 shadowMap = vec4(0);
+	
 	if (_CumulativeRayMarching)
 	{
+		if (_ShadowCumulativeStepsRatio == 0) // clearing the texture
+			return shadowMap;
+		remaining_steps = int(max(1.0, _ShadowMaxStepCount * _ShadowCumulativeStepsRatio));
 		shadowMap = imageLoad(shadowmap, xy);
 		if (_ShadowStopOnHit && shadowMap.w > 0)
 			return shadowMap;
@@ -176,7 +269,8 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
 		if (_CumulativeRayMarching)
 		{
-			vec4 current_step_shadowMap = shadowmap_bilinear_sample(step_uv);
+			vec2 shadowmap_uv = _RotateShadowMapTowardsLight ? uv_terrain_to_shadowmap(step_uv) : step_uv;
+			vec4 current_step_shadowMap = shadowmap_bilinear_sample(shadowmap_uv);
 			float current_step_shadowDepth = 2 * current_step_shadowMap.x * _TerrainHeight;
 			float current_step_duv = current_step_shadowMap.y;
 			float current_step_new_ShadowDepth = current_position.y + current_step_shadowDepth - height - rayDeltaHeight;
@@ -243,4 +337,50 @@ vec4 shadowmap_bilinear_sample(in vec2 uv)
 	vec4 d = imageLoad(shadowmap, xy + ivec2(1, 1));
 	
 	return mix(mix(a, b, uv.x), mix(c, d, uv.x), uv.y);
+}
+
+
+
+vec2 uv_shadowmap_to_terrain(in vec2 uv)
+{
+	vec2 l = normalize(_LightDirection.xz);
+	float nl = dot(l, l);
+	float cos_theta = l.y / nl;
+	float sin_theta = -l.x / nl;
+	
+	float theta = atan(l.x, l.y);
+	float phi = PI / 4.0 - mod(theta, PI / 2.0);
+	float a_p = sqrt(2) * cos(phi);
+	
+	vec2 uv_p = uv - vec2(0.5);
+	uv_p = a_p * vec2(
+		uv_p.x * cos_theta - uv_p.y * sin_theta, 
+		uv_p.x * sin_theta + uv_p.y * cos_theta);
+	uv_p += vec2(0.5);
+	
+	uv_p = clamp(vec2(0), vec2(1), uv_p);
+	
+	return uv_p;
+}
+
+vec2 uv_terrain_to_shadowmap(in vec2 uv)
+{
+	vec2 l = normalize(_LightDirection.xz);
+	float nl = dot(l, l);
+	float cos_theta = l.y / nl;
+	float sin_theta =  - (-l.x / nl);
+	
+	float theta = -atan(l.x, l.y);
+	float phi = PI / 4.0 - mod(theta, PI / 2.0);
+	float a_p = sqrt(2) * cos(phi);
+	
+	vec2 uv_p = uv - vec2(0.5);
+	uv_p = (1.0 / a_p) * vec2(
+		uv_p.x * cos_theta - uv_p.y * sin_theta, 
+		uv_p.x * sin_theta + uv_p.y * cos_theta);
+	uv_p += vec2(0.5);
+	
+	uv_p = clamp(vec2(0), vec2(1), uv_p);
+	
+	return uv_p;
 }

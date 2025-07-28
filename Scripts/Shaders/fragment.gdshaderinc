@@ -22,6 +22,9 @@ layout(location = 0) out vec4 frag_color;
 
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
 vec4 shadow_ray_marching(in vec3 position);
+vec3 fragment_fbm(vec3 position);
+vec2 uv_shadowmap_to_terrain(in vec2 uv);
+vec2 uv_terrain_to_shadowmap(in vec2 uv);
 
 void main() {
 	// Recalculate initial noise sampling position same as vertex shader
@@ -77,7 +80,7 @@ void main() {
 	float material_blend_factor = smoothstep(_SlopeRange.x, _SlopeRange.y, 1 - slope_normal.y);
 
 	// This is the actual surface normal vector
-	vec3 normal = normalize(vec3(-n.y, 1, -n.z));
+	vec3 normal = normalize(vec3(-n.y, _Scale, -n.z));
 
 	// Texturing
 	// Horizontal
@@ -115,9 +118,15 @@ void main() {
 	{
 		// Compute shadows
 		if (_FragmentShadows)
+		{
 			shadowMap = shadow_ray_marching(pos);
+		}
 		else
+		{
+			if (_RotateShadowMapTowardsLight)
+				uv = uv_terrain_to_shadowmap(uv);
 			shadowMap = texture(shadowmap, uv);
+		}
 			
 		float shadowDepth_unorm = shadowMap.x;
 		float shadowDepth = max(2 * shadowDepth_unorm * _TerrainHeight, 0); // how far above the terrain the light / shadow limit is
@@ -170,8 +179,6 @@ void main() {
 	// Convert from linear rgb to srgb for proper color output, ideally you'd do this as some final post processing effect because otherwise you will need to revert this gamma correction elsewhere
 	frag_color = pow(lit, vec4(2.2));
 }
-
-vec3 fragment_fbm(vec3 position);
 
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
 vec4 shadow_ray_marching(in vec3 position)
@@ -232,4 +239,26 @@ vec3 fragment_fbm(vec3 position)
 		vec3 noise_position = (position + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
 		return fbm(noise_position.xz);
 	}
+}
+
+vec2 uv_terrain_to_shadowmap(in vec2 uv)
+{
+	vec2 l = normalize(_LightDirection.xz);
+	float nl = dot(l, l);
+	float cos_theta = l.y / nl;
+	float sin_theta = - (-l.x / nl);
+	
+	float theta = -atan(l.x, l.y);
+	float phi = PI / 4.0 - mod(theta, PI / 2.0);
+	float a_p = sqrt(2) * cos(phi);
+	
+	vec2 uv_p = uv - vec2(0.5);
+	uv_p = (1.0 / a_p) * vec2(
+		uv_p.x * cos_theta - uv_p.y * sin_theta, 
+		uv_p.x * sin_theta + uv_p.y * cos_theta);
+	uv_p += vec2(0.5);
+	
+	uv_p = clamp(vec2(0), vec2(1), uv_p);
+	
+	return uv_p;
 }
