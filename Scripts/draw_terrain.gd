@@ -562,7 +562,11 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(adaptive_step_size_coeff)
 	buffer.push_back(min_step_size)
 	buffer.push_back(max_step_count)
-	buffer.push_back(cumulative_steps_ratio)
+	if ((shadow_propagation || cumulative_shadows) && !rotate_light_source && lighting_changed):
+		# shadowmap is reset, cumulative_steps_ratio == 0 is used as flag
+		buffer.push_back(0)
+	else:
+		buffer.push_back(cumulative_steps_ratio)
 	buffer.push_back(stop_on_hit)
 	buffer.push_back(binary_shadows)
 	buffer.push_back(cumulative_shadows && !lighting_changed)
@@ -576,7 +580,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	max_step_count = int(max_step_count)
 
 	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
-	var values_affecting_lighting : Array = [light_direction, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, binary_shadows, rotate_shadowmap_towards_light]
+	var values_affecting_lighting : Array = [light_direction, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, rotate_shadowmap_towards_light]
 	var geometry_hash = values_affecting_geometry.hash()
 	var lighting_hash = values_affecting_lighting.hash()
 	

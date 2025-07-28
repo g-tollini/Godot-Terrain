@@ -101,7 +101,8 @@ void main()
 		}
 	}
 	
-	if (any(greaterThanEqual(uv, vec2(1))) ||
+	if (_ShadowCumulativeStepsRatio == 0 || //_ShadowCumulativeStepsRatio at 0 is used as a flag to reset the texels values
+		any(greaterThanEqual(uv, vec2(1))) ||
 		any(lessThanEqual(uv, vec2(0))) )
 	{
 		shadowMap = vec4(0);
@@ -169,7 +170,15 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
 	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
 	
-	return vec4(shadowDepth_unorm, 0, 0, 0);
+	vec4 shadowMap = imageLoad(shadowmap, xy);
+	float current_shadowDepth_unorm = shadowMap.x;
+	if (shadowDepth_unorm > current_shadowDepth_unorm)
+	{
+		shadowMap.x = shadowDepth_unorm;
+		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / float(_ShadowMaxStepCount));
+	}
+	
+	return shadowMap;
 }
 
 vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
@@ -226,11 +235,11 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	int remaining_steps = int(_ShadowMaxStepCount);
 	
 	vec4 shadowMap = vec4(0);
-	if (_ShadowCumulativeStepsRatio == 0) // clearing the texture
-		return shadowMap;
 	
 	if (_CumulativeRayMarching)
 	{
+		if (_ShadowCumulativeStepsRatio == 0) // clearing the texture
+			return shadowMap;
 		remaining_steps = int(max(1.0, _ShadowMaxStepCount * _ShadowCumulativeStepsRatio));
 		shadowMap = imageLoad(shadowmap, xy);
 		if (_ShadowStopOnHit && shadowMap.w > 0)
