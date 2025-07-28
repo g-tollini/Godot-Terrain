@@ -103,28 +103,34 @@ class_name DrawTerrainMesh extends CompositorEffect
 @export_group("Shadows settings")
 ## Enable / disable cast shadows
 @export var cast_shadows : bool = true
+
+enum ShadowTechnique {
+	Fragment_Raymarching,
+	Shadowmap_Raymarching,
+	Shadowmap_Cumulative_Raymarching,
+	Shadowmap_Propagation,
+	Rotated_Shadowmap_Propagation
+}
+@export var shadow_technique: ShadowTechnique = ShadowTechnique.Fragment_Raymarching
+
 @export_range(0, 10) var shadow_strength : float = 5
 @export_range(0, 1) var soft_shadows : float = 0.5
+@export_range(1, 100) var max_step_count : float = 10
+## Display the heatmap of the number of steps that were needed to compute the cast shadow
+## Terrain is either in shadow or in light, no accounting for shadow depth
+@export var binary_shadows : bool = false
+## The v axis (of UVs) of the shadowmap is oriented towards the light source
+@export var rotate_shadowmap_towards_light : bool = false
+@export var steps_heatmap : bool = false
+@export var save_shadowmap : bool = false
+
+@export_subgroup("Raymarching parameters")
 @export_range(0, 1) var adaptive_step_size_coeff : float = 0.15
 @export_range(0.1, 10) var min_step_size : float = 0.5
-@export_range(1, 100) var max_step_count : float = 10
 ## Number of steps each frame for the cumulative ray marching method is max_step_count * cumulative_steps_ratio
 @export_range(1 / 100.0, 1.0) var cumulative_steps_ratio : float = 0.1
 ## Stops ray marching on first hit
 @export var stop_on_hit : bool = false
-## Terrain is either in shadow or in light, no accounting for shadow depth
-@export var binary_shadows : bool = false
-## Performing ray marching over multiple frames untill each ray reaches the edge of the terrain
-@export var cumulative_shadows : bool = false
-## Compute 'pixel-perfect' shadows in the fragment shader
-@export var fragment_shadows : bool = false
-## Display the heatmap of the number of steps that were needed to compute the cast shadow
-@export var ray_steps_heatmap : bool = false
-## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
-@export var shadow_propagation : bool = false
-## The v axis (of UVs) of the shadowmap is oriented towards the light source
-@export var rotate_shadowmap_towards_light : bool = false
-@export var save_shadowmap : bool = false
 
 var transform : Transform3D
 var light : DirectionalLight3D
@@ -170,10 +176,16 @@ var fbm_image_up_to_date : bool = false
 var fbm_render_rdtex : RID # fbm texture in the main rendering device
 var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
 
-# Heightmap
+# Shadowmap
 var shadowmap_render_rdtex : RID # heightmap texture in the main rendering device
 var shadowmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
-
+## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
+var shadow_propagation : bool = false
+## Compute 'pixel-perfect' raymarched shadows in the fragment shader
+var fragment_shadows : bool = false
+## Performing raymarching over multiple frames untill each ray reaches the edge of the terrain
+var cumulative_shadows : bool = false
+ 
 func init_gpu():
 	if rd == null:
 		rd = RenderingServer.get_rendering_device()
@@ -507,6 +519,13 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	else:
 		light_direction = light.transform.basis.z.normalized()
 
+	
+	fragment_shadows = shadow_technique == ShadowTechnique.Fragment_Raymarching || shadow_technique == ShadowTechnique.Fragment_Raymarching
+	cumulative_shadows = shadow_technique == ShadowTechnique.Shadowmap_Cumulative_Raymarching
+	shadow_propagation = shadow_technique == ShadowTechnique.Shadowmap_Propagation || shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation
+	rotate_shadowmap_towards_light = rotate_shadowmap_towards_light || (shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation)
+	rotate_shadowmap_towards_light = rotate_shadowmap_towards_light &&shadow_technique != ShadowTechnique.Shadowmap_Propagation
+		
 	# Store all shader uniforms in a gpu data buffer, this isn't exactly the optimal data layout, each 1.0 push back is wasted space
 	buffer.push_back(light_direction.x)
 	buffer.push_back(light_direction.y)
@@ -571,7 +590,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(binary_shadows)
 	buffer.push_back(cumulative_shadows && !lighting_changed)
 	buffer.push_back(fragment_shadows)
-	buffer.push_back(ray_steps_heatmap)
+	buffer.push_back(steps_heatmap)
 	buffer.push_back(shadow_propagation)
 	buffer.push_back(rotate_shadowmap_towards_light)
 	buffer.push_back(1.0)
@@ -710,7 +729,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if geometry_changed:
 		compute_fbm(buffer)
 		
-	#compute_maximum_mipmap()
+	
 		
 	if !fragment_shadows && (lighting_changed || cumulative_shadows || (shadow_propagation && !rotate_shadowmap_towards_light)):
 		compute_shadowmap(buffer)
