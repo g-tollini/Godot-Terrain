@@ -68,6 +68,7 @@ cumulative_shadows = false
 fragment_shadows = false
 ray_steps_heatmap = false
 shadow_propagation = false
+rotate_shadowmap_towards_light = false
 save_shadowmap = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 

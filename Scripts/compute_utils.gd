@@ -115,7 +115,7 @@ static func ComputeShadowMap(
 	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_shadowmap_pipeline)
 	local_rd.compute_list_bind_uniform_set(compute_list, compute_shadowmap_uniform_set, 0)
 	
-	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 8, fbm_texture_width / 8, 1)
+	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 1, fbm_texture_width / 512, 1)
 	local_rd.compute_list_end()
 
 	local_rd.submit()

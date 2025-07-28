@@ -708,7 +708,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		
 	#compute_maximum_mipmap()
 		
-	if lighting_changed || (shadow_propagation && !fragment_shadows) || cumulative_shadows:
+	if !fragment_shadows && (lighting_changed || cumulative_shadows || (shadow_propagation && !rotate_shadowmap_towards_light)):
 		compute_shadowmap(buffer)
 	
 	# Saving the fbm
