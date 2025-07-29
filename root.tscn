@@ -1,8 +1,9 @@
-[gd_scene load_steps=7 format=3 uid="uid://bs3wao3xrtlmq"]
+[gd_scene load_steps=8 format=3 uid="uid://bs3wao3xrtlmq"]
 
 [ext_resource type="Script" uid="uid://btn8i0m76hx2y" path="res://Scripts/Camera/debug_camera_controller.gd" id="1_hekff"]
 [ext_resource type="Texture2D" uid="uid://bhx3dpjr73rt4" path="res://but.png" id="2_28aoi"]
 [ext_resource type="Script" uid="uid://7n58awc2ols0" path="res://Scripts/draw_terrain.gd" id="2_pyidc"]
+[ext_resource type="Script" uid="uid://cxbd5nypsq17a" path="res://Scripts/ui_walkthrough.gd" id="4_28aoi"]
 
 [sub_resource type="Environment" id="Environment_7owt0"]
 background_mode = 1
@@ -39,13 +40,15 @@ frequency_variance = Vector2(-0.085, 0.115)
 height_scale = 80.5
 slope_damping = 0.155
 slope_threshold = Vector2(0.84, 0.98)
+enable_texturing = true
 low_slope_texture = ExtResource("2_28aoi")
-low_slope_texture_ST = Vector4(17.055, 16.39, 0.405, 0.32)
+low_slope_texture_ST = Vector4(1, 1, 1, 1)
 low_slope_color = Color(0.515662, 0.451859, 0.225508, 1)
 high_slope_texture = ExtResource("2_28aoi")
-high_slope_texture_ST = Vector4(28.19, 39, -1.065, 0.635)
+high_slope_texture_ST = Vector4(1, 1, 1, 0.635)
 high_slope_color = Color(0.809404, 0.581583, 0.415475, 1)
 ambient_light = Color(0.192, 0.2712, 0.3, 1)
+use_original_normals = false
 rotate_light_source = false
 rotation_speed = 0.234
 fbm_texture_width = 512
@@ -61,7 +64,7 @@ shadow_strength = 3.05
 soft_shadows = 0.0
 max_step_count = 20.0
 binary_shadows = false
-rotate_shadowmap_towards_light = true
+rotate_shadowmap_towards_light = false
 steps_heatmap = false
 save_shadowmap = false
 adaptive_step_size_coeff = 0.2
@@ -71,7 +74,7 @@ stop_on_hit = false
 metadata/_custom_type_script = "uid://7n58awc2ols0"
 
 [sub_resource type="Compositor" id="Compositor_1i1cu"]
-compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5c"), null])
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5c")])
 
 [node name="Root" type="Node3D"]
 
@@ -79,9 +82,72 @@ compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_vvh5
 transform = Transform3D(-0.128036, 0.502559, 0.856008, 0.992414, 0.0450523, 0.121984, 0.022724, 0.864075, -0.504227, 171.041, 24.374, -100.751)
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.60854)
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 50, 100, 100)
 script = ExtResource("1_hekff")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_7owt0")
 compositor = SubResource("Compositor_1i1cu")
+
+[node name="WalkthroughUI" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(500, 0)
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -8.0
+offset_bottom = 8.0
+grow_horizontal = 0
+script = ExtResource("4_28aoi")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="WalkthroughUI"]
+layout_mode = 2
+
+[node name="Step" type="RichTextLabel" parent="WalkthroughUI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Step 1 / 10"
+fit_content = true
+horizontal_alignment = 1
+
+[node name="FPS" type="RichTextLabel" parent="WalkthroughUI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+fit_content = true
+horizontal_alignment = 2
+
+[node name="Title" type="RichTextLabel" parent="WalkthroughUI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Description"
+fit_content = true
+
+[node name="DescriptionContainer" type="PanelContainer" parent="WalkthroughUI/VBoxContainer"]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+
+[node name="Description" type="RichTextLabel" parent="WalkthroughUI/VBoxContainer/DescriptionContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "This is the description"
+fit_content = true
+
+[node name="StepSpecificsContainer" type="VBoxContainer" parent="WalkthroughUI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="WalkthroughUI/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+
+[node name="Previous" type="Button" parent="WalkthroughUI/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "<<"
+
+[node name="RichTextLabel" type="RichTextLabel" parent="WalkthroughUI/VBoxContainer/HBoxContainer"]
+layout_mode = 2
+
+[node name="Next" type="Button" parent="WalkthroughUI/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ">>"
