@@ -23,6 +23,8 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	float _FrequencyVarianceUpperBound;
 	float _SlopeDamping;
 	vec4 _AmbientLight;
+	bool _UseOriginalNormals;
+	bool _EnableTexturing;
 	bool _VertexUseFbmMap;
 	bool _FragmentUseFbmMap;
 	float _FragmentFbmMapBias;

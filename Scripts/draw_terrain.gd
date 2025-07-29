@@ -62,6 +62,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 ## If the slope is less than the low threshold, outputs  [code]low_slope_color[/code]. If the slope is greater than the upper threshold, outputs  [code]high_slope_color[/code]. If inbetween, blend between the colors.
 @export var slope_threshold : Vector2 = Vector2(0.9, 0.98)
 
+@export_subgroup("Texturing")
+@export var enable_texturing : bool = true
 ## Color of flatter areas of terrain
 @export var low_slope_texture : Texture2D
 @export var low_slope_texture_ST : Vector4 # ST means scale (xy) translation (zw)
@@ -74,11 +76,11 @@ class_name DrawTerrainMesh extends CompositorEffect
 
 @export var high_slope_color : Color = Color(0.16, 0.1, 0.1)
 
-
 @export_group("Light Settings")
 
 ## Additive light adjustment
 @export var ambient_light : Color = Color.DIM_GRAY
+@export var use_original_normals : bool = false
 @export var rotate_light_source : bool = false
 @export_range(0.01, 1.0) var rotation_speed : float = 0.5
 
@@ -155,6 +157,7 @@ var clear_colors := PackedColorArray([Color.DARK_BLUE])
 var p_uniform_buffer : RID
 
 # Texturing
+var slope_tex_format : RDTextureFormat
 var low_slope_rdtex : RID
 var high_slope_rdtex : RID
 # Sampler object for both textures
@@ -197,7 +200,7 @@ func init_gpu():
 	
 	# Creating 2 textures on the gpu for the flat / steep areas
 	# Data will be copeid to these textures in _render_callback
-	var slope_tex_format = RDTextureFormat.new()
+	slope_tex_format = RDTextureFormat.new()
 	slope_tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
 	slope_tex_format.width = 1024
 	slope_tex_format.height = 1024
@@ -212,8 +215,8 @@ func init_gpu():
 	
 	# Sampler object for both textures
 	var slope_tex_sampler_state := RDSamplerState.new()
-	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
+	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_REPEAT
 	slope_tex_sampler = rd.sampler_create(slope_tex_sampler_state)
 	
 	# Fbm
@@ -327,8 +330,8 @@ func _init():
 	var root : Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
 	if root: light = root.get_node_or_null('DirectionalLight3D')
 
-func rotate_light(light : DirectionalLight3D):
-	if rotate_light_source:
+func rotate_light():
+	if light:
 		light.rotate_y(rotation_speed / 20)
 
 # Compiles... the shader...?
@@ -579,6 +582,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(ambient_light.g)
 	buffer.push_back(ambient_light.b)
 	buffer.push_back(1.0)
+	buffer.push_back(use_original_normals)
+	buffer.push_back(enable_texturing)
 	buffer.push_back(vertex_use_fbm)
 	buffer.push_back(fragment_use_fbm)
 	buffer.push_back(fragment_fbm_bias)
@@ -596,13 +601,11 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		buffer.push_back(cumulative_steps_ratio)
 	buffer.push_back(stop_on_hit)
 	buffer.push_back(binary_shadows)
-	buffer.push_back(cumulative_shadows && !lighting_changed)
+	buffer.push_back(cumulative_shadows)
 	buffer.push_back(fragment_shadows)
 	buffer.push_back(steps_heatmap)
 	buffer.push_back(shadow_propagation)
 	buffer.push_back(rotate_shadowmap_towards_light)
-	buffer.push_back(1.0)
-	buffer.push_back(1.0)
 	
 	max_step_count = int(max_step_count)
 
@@ -661,12 +664,14 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	if low_slope_texture_copied_to_gpu != low_slope_texture.get_rid() and low_slope_rdtex.is_valid():
 		var image = low_slope_texture.get_image()
 		image.convert(Image.FORMAT_RGBA8)
+		image.resize(slope_tex_format.width, slope_tex_format.height)
 		rd.texture_update(low_slope_rdtex, 0, image.get_data())
 		low_slope_texture_copied_to_gpu = low_slope_texture.get_rid()
 		
 	if high_slope_texture_copied_to_gpu != high_slope_texture.get_rid() and high_slope_rdtex.is_valid():
 		var image = high_slope_texture.get_image()
 		image.convert(Image.FORMAT_RGBA8)
+		image.resize(slope_tex_format.width, slope_tex_format.height)
 		rd.texture_update(high_slope_rdtex, 0, image.get_data())
 		high_slope_texture_copied_to_gpu = high_slope_texture.get_rid()
 	
@@ -722,7 +727,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 
 	rd.draw_command_end_label()
 	
-	rotate_light(light)
+	if rotate_light_source:
+		rotate_light()
 	light.position = side_length * mesh_scale * light_direction
 	
 	if fragment_shadows: # cannot have both enabled

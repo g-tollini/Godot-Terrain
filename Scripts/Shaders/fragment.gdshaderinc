@@ -44,24 +44,24 @@ void main() {
 	{
 		vec2 uv0 = (mul0 + 1) * vec2(-uv.x, uv.y); // using different flipped uvs like vec2(-uv.x, uv.y) aims at countering the effect of uneven low frequency terrain not producing high frequency random visuals when sampled
 		vec2 uv1 = (mul1 + 1) * vec2(uv.x, -uv.y); // adding +1 so that the frequency multiplicators are not multiple of each other which would produce straight lines in some places
-		
+
 		vec2 mirrored_uv0 = vec2(1) - abs(mod(uv0, 2.0) - 1.0);
 		vec2 mirrored_uv1 = vec2(1) - abs(mod(uv1, 2.0) - 1.0);
-		
+
 		float bias_uv = - _FragmentFbmMapBias;
 		float bias_uv0 = - 2 * _FragmentFbmMapBias;
 		float bias_uv1 = - 2 * _FragmentFbmMapBias;
-		
+
 		n = 2 * (texture(fbmmap, uv, bias_uv).xyz - vec3(0.5)) +
 		  1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
 		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv1, bias_uv1).xyz - vec3(0.5));
-		
+
 		if (true) // should be based fragment distance to camera
 		{
 			// Enhance terrain appearance when looking closely using perlin noise
 			float mul = 300;
 			vec2 uv_noise = mul * noise_pos.xz;
-			
+
 			n += 1.2 * ( 1 / sqrt(mul1) * perlin_noise2D(uv_noise)
 				+ 1 / sqrt(mul1) * perlin_noise2D(2 * uv_noise)
 				+ 1 / sqrt(mul1) * perlin_noise2D(4 * uv_noise));
@@ -80,23 +80,30 @@ void main() {
 	float material_blend_factor = smoothstep(_SlopeRange.x, _SlopeRange.y, 1 - slope_normal.y);
 
 	// This is the actual surface normal vector
-	vec3 normal = normalize(vec3(-n.y, _Scale, -n.z));
+	vec3 normal = normalize(vec3(-n.y, _UseOriginalNormals ? 1 : _Scale, -n.z));
 
 	// Texturing
-	// Horizontal
-	vec2 uv_y = 0.001 * uv * _LowSlopeTexST.xy + _LowSlopeTexST.zw;
-	// Vertical
-	vec2 uv_x = -0.001 * uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
-	vec2 uv_z = -0.001 * uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+	vec4 lowSlopeTexSample = vec4(1);
+	vec4 highSlopeTexSample = vec4(1);
+	if(_EnableTexturing)
+	{
+		// Horizontal
+		vec2 uv_y = uv * _LowSlopeTexST.xy + _LowSlopeTexST.zw;
+		// Vertical
+		vec2 uv_x = uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
+		vec2 uv_z = uv * _HighSlopeTexST.xy + _HighSlopeTexST.zw;
 
-	vec4 lowSlopeTexSample = texture(low_slope_texture, uv_y);
-	vec4 highSlopeTexSample_x = texture(high_slope_texture, uv_x);
-	vec4 highSlopeTexSample_z = texture(high_slope_texture, uv_z);
+		lowSlopeTexSample = texture(low_slope_texture, uv_y);
 
-	float nx = abs(normal.x);
-	float nz = abs(normal.z);
-	float highSlopeTex_blend = nz / (nx + nz);
-	vec4 highSlopeTexSample = mix(highSlopeTexSample_x, highSlopeTexSample_z, highSlopeTex_blend);
+		float nx = abs(normal.x);
+		float nz = abs(normal.z);
+		float highSlopeTex_blend = nz / (nx + nz);
+
+		vec4 highSlopeTexSample_x = texture(high_slope_texture, uv_x);
+		vec4 highSlopeTexSample_z = texture(high_slope_texture, uv_z);
+
+		highSlopeTexSample = mix(highSlopeTexSample_x, highSlopeTexSample_z, highSlopeTex_blend);
+	}
 
 	// Blend between the two terrain colors
 	vec4 albedo = mix(lowSlopeTexSample * _LowSlopeColor, highSlopeTexSample * _HighSlopeColor, vec4(material_blend_factor));
@@ -127,18 +134,18 @@ void main() {
 				uv = uv_terrain_to_shadowmap(uv);
 			shadowMap = texture(shadowmap, uv);
 		}
-			
+
 		float shadowDepth_unorm = shadowMap.x;
 		float shadowDepth = max(2 * shadowDepth_unorm * _TerrainHeight, 0); // how far above the terrain the light / shadow limit is
 		shadow = _ShadowStrength * clamp(0, 1 / _ShadowStrength, 0.5 * shadowDepth / _TerrainHeight);
-		
+
 		float light_shadow_threshold = 0.005;
 		if (shadow > light_shadow_threshold || (_ShadowStopOnHit && shadow > 0))
 		{
 			float base_shadow_strength = (1 - _SoftShadows) / 10.0;
-			
+
 			shadow = base_shadow_strength + clamp(0, 1 - base_shadow_strength, shadow); // hard shadows
-			
+
 			float soft = 1;
 			if (!_ShadowStopOnHit)
 			{
@@ -154,13 +161,13 @@ void main() {
 		lit *= mix(1 - shadow, sqrt(1 - shadow), 0.2);
 		lit.a = 1;
 	}
-	
+
 	// Shadowmap ray marching number of steps heatmap
 	vec3 cold = vec3(0.4, 0.7, 0.4); // blue
 	vec3 cold_medium = vec3(0.5, 0.5, 0.8); // yellow
 	vec3 medium_hot = vec3(0.9, 0.6, 0.2); // orange
 	vec3 hot = vec3(1, 0.2, 0.1); // red
-	
+
 	vec3 heat;
 	float value = shadowMap.z;
 	float threshold0 = 0.4;
@@ -172,7 +179,7 @@ void main() {
 	else
 		heat = mix(medium_hot, hot, (value - threshold1) / (1 - threshold1));
 
-		
+
 	if	(_RayStepsHeatmap)
 		lit = vec4(heat, 1);
 
@@ -191,7 +198,7 @@ vec4 shadow_ray_marching(in vec3 position)
 
 	vec3 current_position = position;
 	vec3 n = fragment_fbm(position);
-	
+
 	current_position.y = (n.x + 1) * _TerrainHeight - _Offset.y;
 	float height = current_position.y;
 	float shadowDepth = 0;
@@ -202,7 +209,7 @@ vec4 shadow_ray_marching(in vec3 position)
 	current_position += step_size * _LightDirection;
 
 	while (remaining_steps > 0 &&
-		all(lessThanEqual(current_position.xz, pos_max.xz)) && 
+		all(lessThanEqual(current_position.xz, pos_max.xz)) &&
 		all(greaterThanEqual(current_position.xz, pos_min.xz)) )
 	{
 		num_steps += 1 / _ShadowMaxStepCount;
@@ -217,12 +224,12 @@ vec4 shadow_ray_marching(in vec3 position)
 				remaining_steps = 0;
 		}
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
-		
+
 		vec3 next_step = step_size * _LightDirection;
 		current_position += next_step;
 		remaining_steps--;
 	}
-	
+
 	return vec4(0.5 * shadowDepth / _TerrainHeight, 0, num_steps, shadow_at_step);
 }
 
@@ -247,18 +254,18 @@ vec2 uv_terrain_to_shadowmap(in vec2 uv)
 	float nl = dot(l, l);
 	float cos_theta = l.y / nl;
 	float sin_theta = - (-l.x / nl);
-	
+
 	float theta = -atan(l.x, l.y);
 	float phi = PI / 4.0 - mod(theta, PI / 2.0);
 	float a_p = sqrt(2) * cos(phi);
-	
+
 	vec2 uv_p = uv - vec2(0.5);
 	uv_p = (1.0 / a_p) * vec2(
-		uv_p.x * cos_theta - uv_p.y * sin_theta, 
+		uv_p.x * cos_theta - uv_p.y * sin_theta,
 		uv_p.x * sin_theta + uv_p.y * cos_theta);
 	uv_p += vec2(0.5);
-	
+
 	uv_p = clamp(vec2(0), vec2(1), uv_p);
-	
+
 	return uv_p;
 }
