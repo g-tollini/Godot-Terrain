@@ -157,6 +157,8 @@ var p_uniform_buffer : RID
 # Texturing
 var low_slope_rdtex : RID
 var high_slope_rdtex : RID
+# Sampler object for both textures
+var slope_tex_sampler : RID
 var low_slope_texture_copied_to_gpu : RID
 var high_slope_texture_copied_to_gpu : RID
 
@@ -207,6 +209,12 @@ func init_gpu():
 	
 	# High slope
 	high_slope_rdtex = rd.texture_create(slope_tex_format, RDTextureView.new())
+	
+	# Sampler object for both textures
+	var slope_tex_sampler_state := RDSamplerState.new()
+	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
+	slope_tex_sampler = rd.sampler_create(slope_tex_sampler_state)
 	
 	# Fbm
 	# Texture format
@@ -634,12 +642,6 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		push_error("Unassigned textures")
 		return
 	
-	# Sampler object for both textures
-	var slope_tex_sampler_state := RDSamplerState.new()
-	slope_tex_sampler_state.repeat_u = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	slope_tex_sampler_state.repeat_v = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
-	var slope_tex_sampler = rd.sampler_create(slope_tex_sampler_state)
-	
 	# Binding the textures created on the gpu in init_gpu() to the shader
 	var low_slope_tex_uniform := RDUniform.new()
 	low_slope_tex_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
@@ -728,8 +730,6 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	if geometry_changed:
 		compute_fbm(buffer)
-		
-	
 		
 	if !fragment_shadows && (lighting_changed || cumulative_shadows || (shadow_propagation && !rotate_shadowmap_towards_light)):
 		compute_shadowmap(buffer)
