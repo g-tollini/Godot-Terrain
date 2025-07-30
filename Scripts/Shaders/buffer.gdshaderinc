@@ -28,6 +28,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _VertexUseFbmMap;
 	bool _FragmentUseFbmMap;
 	float _FragmentFbmMapBias;
+	bool _FragmentEnhanceWithNoise;
 	float _MeshSize;
 	bool _EnableCastShadows;
 	float _ShadowStrength;
@@ -43,4 +44,5 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
 	bool _RotateShadowMapTowardsLight;
+	bool _ClearShadowMap;
 };

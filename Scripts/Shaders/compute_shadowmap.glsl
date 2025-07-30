@@ -31,6 +31,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _VertexUseFbmMap;
 	bool _FragmentUseFbmMap;
 	float _FragmentFbmMapBias;
+	bool _FragmentEnhanceWithNoise;
 	float _MeshSize;
 	bool _EnableCastShadows;
 	float _ShadowStrength;
@@ -46,6 +47,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
 	bool _RotateShadowMapTowardsLight;
+	bool _ClearShadowMap;
 };
 
 #define PI 3.141592653589793238462
@@ -103,8 +105,7 @@ void main()
 		}
 	}
 	
-	if (_ShadowCumulativeStepsRatio == 0 || //_ShadowCumulativeStepsRatio at 0 is used as a flag to reset the texels values
-		any(greaterThanEqual(uv, vec2(1))) ||
+	if (any(greaterThanEqual(uv, vec2(1))) ||
 		any(lessThanEqual(uv, vec2(0))) )
 	{
 		shadowMap = vec4(0);
@@ -166,7 +167,8 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 	
 	float decay = length(towards_light) * _MeshSize / dimensions.x * abs(_LightDirection.y);
 	
-	float neighbors_shadowHeight_unorm = mix(fbm_sample_1.r + shadow_sample_1.r, fbm_sample_2.r + shadow_sample_2.r, sample_1_weight);
+	float neighbors_shadowDepth_unorm = mix(shadow_sample_1.r, shadow_sample_2.r, sample_1_weight);
+	float neighbors_shadowHeight_unorm = mix(fbm_sample_1.r , fbm_sample_2.r, sample_1_weight) + neighbors_shadowDepth_unorm;
 	float height_unorm = 0.5 * (fbm.x + 1);
 	
 	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
@@ -174,11 +176,11 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 	
 	vec4 shadowMap = imageLoad(shadowmap, xy);
 	float current_shadowDepth_unorm = shadowMap.x;
-	if (shadowDepth_unorm > current_shadowDepth_unorm)
-	{
-		shadowMap.x = shadowDepth_unorm;
-		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / float(_ShadowMaxStepCount));
-	}
+	shadowMap.x = max(shadowDepth_unorm, current_shadowDepth_unorm - 0.5 * decay / _TerrainHeight);
+	if (neighbors_shadowDepth_unorm == 0)
+		shadowMap.z =  1.0 / _ShadowMaxStepCount;
+	else if (shadowDepth_unorm > current_shadowDepth_unorm)
+		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / _ShadowMaxStepCount);
 	
 	return shadowMap;
 }
@@ -238,10 +240,8 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	
 	vec4 shadowMap = vec4(0);
 	
-	if (_CumulativeRayMarching)
+	if (_CumulativeRayMarching && !_ClearShadowMap)
 	{
-		if (_ShadowCumulativeStepsRatio == 0) // clearing the texture
-			return shadowMap;
 		remaining_steps = int(max(1.0, _ShadowMaxStepCount * _ShadowCumulativeStepsRatio));
 		shadowMap = imageLoad(shadowmap, xy);
 		if (_ShadowStopOnHit && shadowMap.w > 0)
@@ -269,7 +269,7 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 		current_position = fbm_sample_to_world_space(step_uv);
 		num_steps += 1 / float(max_steps);
 		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
-		if (_CumulativeRayMarching)
+		if (_CumulativeRayMarching && !_ClearShadowMap)
 		{
 			vec2 shadowmap_uv = _RotateShadowMapTowardsLight ? uv_terrain_to_shadowmap(step_uv) : step_uv;
 			vec4 current_step_shadowMap = shadowmap_bilinear_sample(shadowmap_uv);

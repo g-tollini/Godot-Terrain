@@ -90,6 +90,8 @@ class_name DrawTerrainMesh extends CompositorEffect
 ## Sample the Fbm instead of computing the noise in the vertex shader
 @export var vertex_use_fbm : bool = false # use fbm texture in vertex shader
 @export var fragment_use_fbm : bool = false # use fbm texture in fragment shader
+## Add 3 layers of noise sampling to the fbm sampling in the fragment shader to improve the terrain surface aspect
+@export var fragment_enhance_with_noise : bool = false
 ## Negative bias to increase the distance at which the fragment shader samples a lower LOD (higher mipmap) of the fbm texture
 @export_range(0, 4.0) var fragment_fbm_bias : float
 
@@ -156,6 +158,8 @@ var p_wire_shader : RID
 var clear_colors := PackedColorArray([Color.DARK_BLUE])
 var p_uniform_buffer : RID
 
+var light_last_rotation_frame : int = 0
+
 # Texturing
 var slope_tex_format : RDTextureFormat
 var low_slope_rdtex : RID
@@ -172,6 +176,7 @@ var geometry_buffer_hash : int = 0 # for detecting value updates affecting geome
 var lighting_buffer_hash : int = 0 # for detecting value updates affecting lighting
 var geometry_changed : bool = true
 var lighting_changed : bool = true
+var rotated_shadowmap : bool = false
 
 # Fbmmap
 var fbm_tex_format : RDTextureFormat
@@ -182,6 +187,7 @@ var fbm_render_rdtex : RID # fbm texture in the main rendering device
 var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (aliasing the one in the main rendering device)
 
 # Shadowmap
+var shadowmap_image : Image
 var shadowmap_render_rdtex : RID # heightmap texture in the main rendering device
 var shadowmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
@@ -587,6 +593,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(vertex_use_fbm)
 	buffer.push_back(fragment_use_fbm)
 	buffer.push_back(fragment_fbm_bias)
+	buffer.push_back(fragment_enhance_with_noise)
 	buffer.push_back(side_length * mesh_scale) # num of vertices * distance between each = mesh size
 	buffer.push_back(cast_shadows)
 	buffer.push_back(shadow_strength)
@@ -594,11 +601,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(adaptive_step_size_coeff)
 	buffer.push_back(min_step_size)
 	buffer.push_back(max_step_count)
-	if ((shadow_propagation || cumulative_shadows) && !rotate_light_source && lighting_changed):
-		# shadowmap is reset, cumulative_steps_ratio == 0 is used as flag
-		buffer.push_back(0)
-	else:
-		buffer.push_back(cumulative_steps_ratio)
+	buffer.push_back(cumulative_steps_ratio)
 	buffer.push_back(stop_on_hit)
 	buffer.push_back(binary_shadows)
 	buffer.push_back(cumulative_shadows)
@@ -606,11 +609,14 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(steps_heatmap)
 	buffer.push_back(shadow_propagation)
 	buffer.push_back(rotate_shadowmap_towards_light)
+	buffer.push_back(cumulative_shadows && lighting_changed || shadow_propagation && (rotated_shadowmap != rotate_shadowmap_towards_light))
+	buffer.push_back(1.0)
+	buffer.push_back(1.0)
 	
 	max_step_count = int(max_step_count)
 
 	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
-	var values_affecting_lighting : Array = [light_direction, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, rotate_shadowmap_towards_light]
+	var values_affecting_lighting : Array = [light_direction, fragment_shadows, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, rotate_shadowmap_towards_light]
 	var geometry_hash = values_affecting_geometry.hash()
 	var lighting_hash = values_affecting_lighting.hash()
 	
@@ -618,6 +624,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	geometry_buffer_hash = geometry_hash
 	lighting_changed = lighting_buffer_hash != lighting_hash || geometry_changed
 	lighting_buffer_hash = lighting_hash
+	rotated_shadowmap = rotate_shadowmap_towards_light
 	
 	# All of our settings are stored in a single uniform buffer, certainly not the best decision, but it's easy to work with
 	var buffer_bytes : PackedByteArray = PackedFloat32Array(buffer).to_byte_array()
@@ -727,8 +734,9 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 
 	rd.draw_command_end_label()
 	
-	if rotate_light_source:
+	if rotate_light_source && light_last_rotation_frame < Engine.get_physics_frames():
 		rotate_light()
+		light_last_rotation_frame = Engine.get_physics_frames()
 	light.position = side_length * mesh_scale * light_direction
 	
 	if fragment_shadows: # cannot have both enabled
@@ -749,10 +757,12 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	# Saving the heightmap
 	if save_shadowmap:
 		save_shadowmap = false
-		var output_bytes = rd.texture_get_data(shadowmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-		var heightmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
-		heightmap_image.save_png("res://heightmap.png")
+		read_back_shadowmap_data()
+		shadowmap_image.save_png("res://heightmap.png")
 
+func read_back_shadowmap_data():
+	var output_bytes = rd.texture_get_data(shadowmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	shadowmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
 
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE:

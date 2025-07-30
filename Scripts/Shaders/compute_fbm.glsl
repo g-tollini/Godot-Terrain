@@ -31,6 +31,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _VertexUseFbmMap;
 	bool _FragmentUseFbmMap;
 	float _FragmentFbmMapBias;
+	bool _FragmentEnhanceWithNoise;
 	float _MeshSize;
 	bool _EnableCastShadows;
 	float _ShadowStrength;
@@ -46,6 +47,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 	bool _RayStepsHeatmap;
 	bool _ShadowPropagation;
 	bool _RotateShadowMapTowardsLight;
+	bool _ClearShadowMap;
 };
 
 #define PI 3.141592653589793238462
@@ -201,6 +203,9 @@ void main()
 	// The fractional brownian motion
 	vec3 n = fbm(noise_pos.xz); // values in -1 ; 1
 	vec3 n_unorm = 0.5 * (n + vec3(1)); // values in 0 ; 1
+	
+	// Storing the unorm value in [0;1] in the texture is a piece of code that remains from when
+	// the used format was unorm. Now the used dormat is R16G16B16A16_SFLOAT and this isn't required anymore
 	
 	imageStore(heightmap, xy, vec4(n_unorm, 1));
 }

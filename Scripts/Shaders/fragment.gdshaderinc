@@ -56,7 +56,7 @@ void main() {
 		  1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv0, bias_uv0).xyz - vec3(0.5)) // no sqrt here because it looked nicer without it
 		+ 1 / sqrt(mul1) * 2 * (texture(fbmmap, mirrored_uv1, bias_uv1).xyz - vec3(0.5));
 
-		if (true) // should be based fragment distance to camera
+		if (_FragmentEnhanceWithNoise) // should be based fragment distance to camera
 		{
 			// Enhance terrain appearance when looking closely using perlin noise
 			float mul = 300;
@@ -142,16 +142,13 @@ void main() {
 		float light_shadow_threshold = 0.005;
 		if (shadow > light_shadow_threshold || (_ShadowStopOnHit && shadow > 0))
 		{
-			float base_shadow_strength = (1 - _SoftShadows) / 10.0;
+			float base_shadow_strength = (1 - _SoftShadows) * _ShadowStrength / 10.0;
 
 			shadow = base_shadow_strength + clamp(0, 1 - base_shadow_strength, shadow); // hard shadows
-
-			float soft = 1;
-			if (!_ShadowStopOnHit)
-			{
-				float soft_shadow_slider_coeff = 0.15; // to limit the _SoftShadows slider values (in [0 ; 1]) to values that look good
-				soft = smoothstep(light_shadow_threshold, light_shadow_threshold + soft_shadow_slider_coeff * _SoftShadows, shadow); // soft shadows
-			}
+			
+			float soft_shadow_slider_coeff = 0.15; // to limit the _SoftShadows slider values (in [0 ; 1]) to values that look good
+			float soft = smoothstep(0.5 * soft_shadow_slider_coeff * _SoftShadows, soft_shadow_slider_coeff * _SoftShadows, shadow - base_shadow_strength); // soft shadows
+			
 			if (_BinaryShadows)
 				shadow = (_ShadowStrength / 10.0);
 			shadow = shadow * soft;
