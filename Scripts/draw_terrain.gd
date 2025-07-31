@@ -192,6 +192,7 @@ var fbm_compute_rdtex : RID # fbm texture in the compute rendering device (alias
 
 # Shadowmap
 var shadowmap_image : Image
+var shadowmap_image_up_to_date : bool = false
 var shadowmap_render_rdtex : RID # heightmap texture in the main rendering device
 var shadowmap_compute_rdtex : RID # heightmap texture in the compute rendering device (aliasing the one in the main rendering device)
 ## Default technique is ray marching. Shadow propagations is for experimentation purpose and does not work as well
@@ -239,6 +240,7 @@ func init_gpu():
 	fbm_tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT |RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	
 	fbm_image = Image.create(fbm_texture_width, fbm_texture_width, true, Image.FORMAT_RGBAH)
+	shadowmap_image = Image.create(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH)
 	
 	# Creating the textures in the render devices
 	# One for the main rendering device (the one rendering the terrain)
@@ -314,6 +316,7 @@ func compute_fbm(buffer : Array):
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
 func compute_shadowmap(buffer : Array):
+	shadowmap_image_up_to_date = false
 	var rotated_technique = shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation
 	var compute_shader = rotated_shadowmap_propagation_compute_shader if rotated_technique else shadowmap_compute_shader
 	
@@ -345,6 +348,14 @@ func fbm_texture_gpu_readback():
 	fbm_image.set_data(fbm_texture_width, fbm_texture_width, true, Image.FORMAT_RGBAH, output_bytes)
 	fbm_image_up_to_date = true
 	#fbm_image.generate_mipmaps()
+	
+func shadowmap_texture_gpu_readback():
+	if shadowmap_image_up_to_date:
+		return
+		
+	var output_bytes = rd.texture_get_data(shadowmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
+	shadowmap_image.set_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+	shadowmap_image_up_to_date = true
 
 func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT
@@ -627,20 +638,20 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	buffer.push_back(steps_heatmap)
 	buffer.push_back(shadow_propagation)
 	buffer.push_back(rotate_shadowmap_towards_light)
-	buffer.push_back(cumulative_shadows && lighting_changed || shadow_propagation && (rotated_shadowmap != rotate_shadowmap_towards_light))
+	buffer.push_back((cumulative_shadows && lighting_changed) || (shadow_propagation && (rotated_shadowmap != rotate_shadowmap_towards_light)))
 	buffer.push_back(1.0)
 	buffer.push_back(1.0)
 	
 	max_step_count = int(max_step_count)
 
 	var values_affecting_geometry : Array = [gradient_rotation, rotation, height_scale, angular_variance, zoom, octave_count, amplitude_decay, noise_seed, initial_amplitude, frequency_variance, side_length * mesh_scale]
-	var values_affecting_lighting : Array = [light_direction, fragment_shadows, shadow_propagation, adaptive_step_size_coeff, min_step_size, cumulative_shadows, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, rotate_shadowmap_towards_light]
+	var values_affecting_lighting : Array = [light_direction, adaptive_step_size_coeff, min_step_size, min_step_size, max_step_count, cumulative_steps_ratio, stop_on_hit, shadow_technique, rotate_shadowmap_towards_light]
 	var geometry_hash = values_affecting_geometry.hash()
 	var lighting_hash = values_affecting_lighting.hash()
 	
-	geometry_changed = geometry_buffer_hash != geometry_hash
+	geometry_changed = geometry_changed || geometry_buffer_hash != geometry_hash
 	geometry_buffer_hash = geometry_hash
-	lighting_changed = lighting_buffer_hash != lighting_hash || geometry_changed
+	lighting_changed = lighting_changed || lighting_buffer_hash != lighting_hash || geometry_changed
 	lighting_buffer_hash = lighting_hash
 	rotated_shadowmap = rotate_shadowmap_towards_light
 	
@@ -761,9 +772,11 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 		shadow_propagation = false
 	
 	if geometry_changed:
+		geometry_changed = false
 		compute_fbm(buffer)
 		
 	if !fragment_shadows && (lighting_changed || cumulative_shadows || (shadow_propagation && !rotate_shadowmap_towards_light)):
+		lighting_changed = false
 		compute_shadowmap(buffer)
 	
 	# Saving the fbm
@@ -775,12 +788,8 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	# Saving the heightmap
 	if save_shadowmap:
 		save_shadowmap = false
-		read_back_shadowmap_data()
-		shadowmap_image.save_png("res://heightmap.png")
-
-func read_back_shadowmap_data():
-	var output_bytes = rd.texture_get_data(shadowmap_render_rdtex, 0) # even though we have an alias for the local rendering device we can only get back data from the 'main' declaration
-	shadowmap_image = Image.create_from_data(fbm_texture_width, fbm_texture_width, false, Image.FORMAT_RGBAH, output_bytes)
+		shadowmap_texture_gpu_readback()
+		shadowmap_image.save_png("res://shadowmap.png")
 
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE:

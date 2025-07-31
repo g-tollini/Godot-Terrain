@@ -160,25 +160,27 @@ void main() {
 	}
 
 	// Shadowmap ray marching number of steps heatmap
-	vec3 cold = vec3(0.4, 0.7, 0.4); // blue
-	vec3 cold_medium = vec3(0.5, 0.5, 0.8); // yellow
-	vec3 medium_hot = vec3(0.9, 0.6, 0.2); // orange
-	vec3 hot = vec3(1, 0.2, 0.1); // red
-
-	vec3 heat;
-	float value = shadowMap.z;
-	float threshold0 = 0.4;
-	float threshold1 = 0.8;
-	if (value < threshold0)
-		heat = mix(cold, cold_medium, value / threshold0);
-	else if (value < threshold1)
-		heat = mix(cold_medium, medium_hot, (value - threshold0) / (threshold1 - threshold0));
-	else
-		heat = mix(medium_hot, hot, (value - threshold1) / (1 - threshold1));
-
 
 	if	(_RayStepsHeatmap)
+	{
+		vec3 cold = vec3(0.4, 0.7, 0.4); // blue
+		vec3 cold_medium = vec3(0.5, 0.5, 0.8); // yellow
+		vec3 medium_hot = vec3(0.9, 0.6, 0.2); // orange
+		vec3 hot = vec3(1, 0.2, 0.1); // red
+	
+		vec3 heat;
+		float value = shadowMap.z;
+		float threshold0 = 0.4;
+		float threshold1 = 0.8;
+		if (value < threshold0)
+			heat = mix(cold, cold_medium, value / threshold0);
+		else if (value < threshold1)
+			heat = mix(cold_medium, medium_hot, (value - threshold0) / (threshold1 - threshold0));
+		else
+			heat = mix(medium_hot, hot, (value - threshold1) / (1 - threshold1));
+
 		lit = vec4(heat, 1);
+	}
 
 	// Convert from linear rgb to srgb for proper color output, ideally you'd do this as some final post processing effect because otherwise you will need to revert this gamma correction elsewhere
 	frag_color = pow(lit, vec4(2.2));
@@ -187,6 +189,7 @@ void main() {
 // Returns shadow depth (ie distance between terrain and light / shadow limit) at position
 vec4 shadow_ray_marching(in vec3 position)
 {
+	// see version in compute_shadowmap.glsl for comments
 	vec3 pos_min = -0.5 * _MeshSize * vec3(1);
 	vec3 pos_max = 0.5 * _MeshSize * vec3(1);
 	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);

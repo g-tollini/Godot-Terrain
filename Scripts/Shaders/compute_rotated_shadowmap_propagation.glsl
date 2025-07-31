@@ -51,7 +51,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 };
 
 #define PI 3.141592653589793238462
-#define THREAD_GROUP_SIZE_Y 512
+#define THREAD_GROUP_SIZE_Y 512 // must match imageSize(shadowmap).y
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
 layout(set = 0, binding = 2, rgba16f) restrict uniform image2D shadowmap;
@@ -74,13 +74,15 @@ void main()
 	
 	vec4 shadowMap = vec4(0);
 	
-	uv = uv_shadowmap_to_terrain(uv);
+	uv = uv_shadowmap_to_terrain(uv); // shadowmap uv transformed from shadowmap space to terrain terrain space becomes fbm uv
 	int y = int(gl_LocalInvocationID.y);
-	line_cache[y] = 0;
+	line_cache[y] = 0; // clearing cache
 	
 	if (any(greaterThanEqual(uv, vec2(1))) ||
 		any(lessThanEqual(uv, vec2(0))) )
 	{
+		// if we're here it means we are outside of terrain bounds
+		// the shadowmap texel is then black
 		shadowMap = vec4(0);
 	}
 	else
@@ -93,22 +95,21 @@ void main()
 
 vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
 {
-	int y = int(gl_LocalInvocationID.y);
+	int y = int(gl_LocalInvocationID.y); // local thread id, for cache read / write
 	vec2 terrain_uv = uv;
 	float terrain_height_unorm = texture(fbmmap, terrain_uv).x;
 	float shadow_height_unorm = terrain_height_unorm;
 	
 	vec2 l = normalize(_LightDirection.xz);
-	float nl = dot(l, l);
-	float cos_theta = l.y / nl;
-	float sin_theta = - (-l.x / nl);
+	float cos_theta = l.y;
+	float sin_theta = - (-l.x);
 	
-	float theta = -atan(l.x, l.y);
+	float theta = - atan(l.x, l.y);
 	float phi = PI / 4.0 - mod(theta, PI / 2.0);
-	float a_p = sqrt(2) * cos(phi);
-	float decay_unorm = 0.5 * _LightDirection.y * _MeshSize / float(dimensions.y) * a_p / _TerrainHeight;
+	float a_p = sqrt(2) * cos(phi); // using a_p because 1 unit distance in shadowmap space is a_p units in terrain space
+	float decay_unorm = 0.5 * _LightDirection.y * _MeshSize / float(dimensions.y) * a_p / _TerrainHeight; // decay in terrain space (thus * a_p)
 	
-	line_cache[y] = shadow_height_unorm;
+	line_cache[y] = shadow_height_unorm; // each cache cell (inside terrain bounds, otherwise we're not here) is affected the terrain height, which is the unpropagated shadow height
 	memoryBarrierShared();
 	barrier();
 	
@@ -120,17 +121,30 @@ vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in v
 	
 	while (step < max_steps)
 	{
-		float towards_light_shadow_height_unorm = line_cache[min(y + step_size_y, THREAD_GROUP_SIZE_Y - 1)];
+		step_size_y = min(y + step_size_y, THREAD_GROUP_SIZE_Y - 1) - y; // prevent going out of bounds
+		// there is no early exit because all threads must do as many loops since they contain a barrier sync
+		// but indeed once the bounds are reached the next loops will do useless work
+		
+		float towards_light_shadow_height_unorm = line_cache[y + step_size_y];
 		if (towards_light_shadow_height_unorm - step_size_y * decay_unorm > shadow_height_unorm)
 		{
-			shadow_height_unorm = towards_light_shadow_height_unorm - step_size_y * decay_unorm;
+			// terrain hit
+			shadow_height_unorm = towards_light_shadow_height_unorm - step_size_y * decay_unorm; // propagating shadow height
 			shadow_at_step = step;
 		}
 		
 		line_cache[y] = shadow_height_unorm;
 		memoryBarrierShared();
 		barrier();
-		step_size_y = 2 * step_size_y + 1;
+		step_size_y = 2 * step_size_y;
+		// why is step_size_y exponential ?
+		// before first step, each cache contains the terrain height
+		// after first step, each cache contains the shadow height considering the current cache (at y) and the next cell at y+1
+		// for the second step, the step should be 2 to jump to a cache cell which we don't know
+		// after the second step, we know the combined information of cache y, y+1 and y+2 but after the previous step y+2 was the combined info of y+2 and y+3
+		// so we move have to take a step of 4 now
+		// etc..
+		
 		step++;
 	}
 	

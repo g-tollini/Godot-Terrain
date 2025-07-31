@@ -63,8 +63,7 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv);
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv);
 
 // Samples fbm texture and returns point coordinates in world space
-vec3 fbm_sample_to_world_space(in vec2 uv); // with sampling
-vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm); // without sampling
+vec3 fbm_sample_to_world_space(in vec2 uv);
 vec4 shadowmap_bilinear_sample(in vec2 uv);
 
 vec2 uv_shadowmap_to_terrain(in vec2 uv);
@@ -77,7 +76,6 @@ void main()
 
 	vec2 uv = vec2(xy) / (vec2(dimensions) - vec2(1));
 	
-	float shadowDepth = 0;
 	vec4 shadowMap = vec4(0);
 	
 	if (_RotateShadowMapTowardsLight)
@@ -112,6 +110,8 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
 	ivec2 towards_light_sample_2_xy;
 	float sample_1_weight;
 	
+	// Adjusting step length to hit a uv at the center of a texel on x or y axis and require only 2 imageLoad for the interpolation
+	// The uv adjustment depends on abs_x > abs_y (if true, pixels are on the same row, otherwise same column)
 	if (abs_x > abs_y)
 	{
 		towards_light /= abs_x;
@@ -133,30 +133,35 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
 			sample_1_weight = 1 + towards_light.x;
 	}
 	
+	// Shadowmap texels to load
 	towards_light_sample_1_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_1_xy);
 	towards_light_sample_2_xy = clamp(ivec2(0), dimensions - ivec2(1), towards_light_sample_2_xy);
 	
 	// Propagate neighboring shadows
+	// Sampling fbm for height
+	float height_unorm = texture(fbmmap, uv).x; // current position
 	vec4 fbm_sample_1 = texture(fbmmap, vec2(towards_light_sample_1_xy) / vec2(dimensions));
 	vec4 fbm_sample_2 = texture(fbmmap, vec2(towards_light_sample_2_xy) / vec2(dimensions));
+	
+	// Sampling shadowmap for shadow depth
+	vec4 shadowMap = imageLoad(shadowmap, xy); // current position
 	vec4 shadow_sample_1 = imageLoad(shadowmap, towards_light_sample_1_xy);
 	vec4 shadow_sample_2 = imageLoad(shadowmap, towards_light_sample_2_xy);
 	
+	// Cast shadow decay
 	float decay = length(towards_light) * _MeshSize / dimensions.x * abs(_LightDirection.y);
 	
 	float neighbors_shadowDepth_unorm = mix(shadow_sample_1.r, shadow_sample_2.r, sample_1_weight);
 	float neighbors_shadowHeight_unorm = mix(fbm_sample_1.r , fbm_sample_2.r, sample_1_weight) + neighbors_shadowDepth_unorm;
-	float height_unorm = texture(fbmmap, uv).x;
 	
 	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
 	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
 	
-	vec4 shadowMap = imageLoad(shadowmap, xy);
 	float current_shadowDepth_unorm = shadowMap.x;
 	shadowMap.x = max(shadowDepth_unorm, current_shadowDepth_unorm - 0.5 * decay / _TerrainHeight);
-	if (neighbors_shadowDepth_unorm == 0)
+	if (neighbors_shadowDepth_unorm == 0) // the shadow is cast from the neighboring terrain
 		shadowMap.z =  1.0 / _ShadowMaxStepCount;
-	else if (shadowDepth_unorm > current_shadowDepth_unorm)
+	else if (shadowDepth_unorm > current_shadowDepth_unorm) // the shadow is cast from further away terrain
 		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / _ShadowMaxStepCount);
 	
 	return shadowMap;
@@ -164,42 +169,43 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
 
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 {
-	int max_steps = 100;
 	float min_step_size = clamp(0.05, 10, _ShadowMinStepSize);
-	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize;
+	float adaptive_step_multiplyer = 10 * _ShadowAdaptiveStepSize; // *10 so that a [0;1] slider in the editor gives relevant values
 	int remaining_steps = int(_ShadowMaxStepCount);
 	
 	vec4 shadowMap = vec4(0);
 	
-	if (_CumulativeRayMarching && !_ClearShadowMap)
+	if (_CumulativeRayMarching)
 	{
 		remaining_steps = int(max(1.0, _ShadowMaxStepCount * _ShadowCumulativeStepsRatio));
-		shadowMap = imageLoad(shadowmap, xy);
+		
+		if (!_ClearShadowMap)
+			shadowMap = imageLoad(shadowmap, xy); // unless _ClearShadowMap is set, when using _CumulativeRayMarching the ray marching resumes to where the previous iteration stopped, using the current texel values
+		
 		if (_ShadowStopOnHit && shadowMap.w > 0)
 			return shadowMap;
 	}
 	
 	float shadowDepth = 2 * shadowMap.x * _TerrainHeight;
-	float duv = shadowMap.y; // != 0 only when _CumulativeRayMarching
-	float num_steps = shadowMap.z;
-	float shadow_at_step = shadowMap.w;	
+	float duv = shadowMap.y; // != 0 only when _CumulativeRayMarching is enabled
+	float num_steps = shadowMap.z; // for the heatmap
+	float shadow_at_step = shadowMap.w; // not currently used (the total number of steps is more relevant for visualizing the performance of a technique)
 		
 	float height = fbm_sample_to_world_space(uv).y;
 	
-	vec2 step_uv = uv + duv * _LightDirection.xz; // resume to where the previous ray marching stopped
+	vec2 step_uv = uv + duv * _LightDirection.xz; // resume to where the previous raymarching stopped
 	vec3 current_position = fbm_sample_to_world_space(step_uv);
 	
 	float step_size = min_step_size;
-	step_uv += step_size * _LightDirection.xz / _MeshSize;
+	step_uv += step_size * _LightDirection.xz / _MeshSize; // take a first step since we already know the shadow depth for the current position (either 0 or given by the previous raymarching iteration)
 	
 	while (remaining_steps > 0 &&
 		all(lessThanEqual(step_uv, vec2(1))) &&
 		all(greaterThanEqual(step_uv, vec2(0))) )
 	{
 		num_steps += 1 / _ShadowMaxStepCount;
-		current_position = fbm_sample_to_world_space(step_uv);
-		num_steps += 1 / float(max_steps);
-		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y);
+		current_position = fbm_sample_to_world_space(step_uv); // terrain world position for the current step
+		float rayDeltaHeight = length(step_uv - uv) * _MeshSize * abs(_LightDirection.y); // shadow height / depth decay for the current step
 		if (_CumulativeRayMarching && !_ClearShadowMap)
 		{
 			vec2 shadowmap_uv = _RotateShadowMapTowardsLight ? uv_terrain_to_shadowmap(step_uv) : step_uv;
@@ -207,29 +213,32 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 			float current_step_shadowDepth = 2 * current_step_shadowMap.x * _TerrainHeight;
 			float current_step_duv = current_step_shadowMap.y;
 			float current_step_new_ShadowDepth = current_position.y + current_step_shadowDepth - height - rayDeltaHeight;
-			if (current_step_new_ShadowDepth > shadowDepth)
+			if (current_step_new_ShadowDepth > shadowDepth) // terrain hit
 			{
 				shadowDepth = current_step_new_ShadowDepth;
 				shadow_at_step = num_steps;
 				if (_ShadowStopOnHit)
-					remaining_steps = 0;
+					remaining_steps = 0; // end raymarching here
 			}
 			step_uv += current_step_duv * _LightDirection.xz;
 		}
-		else if (height + rayDeltaHeight < current_position.y)
+		else if (height + rayDeltaHeight < current_position.y) // terrain hit
 		{
 			shadowDepth = max(shadowDepth, current_position.y - height - rayDeltaHeight);
 			shadow_at_step = num_steps;
-			if (_ShadowStopOnHit)
-				remaining_steps = 0;
+			if (_ShadowStopOnHit) 
+				remaining_steps = 0; // end raymarching here
 		}
+		
+		// next step size
 		step_size = max(min_step_size, adaptive_step_multiplyer * (height + rayDeltaHeight - current_position.y));
 		
 		step_uv += step_size * _LightDirection.xz / _MeshSize;
 		remaining_steps--;
 	}
 	
-	shadowMap.x = 0.5 * shadowDepth / _TerrainHeight;
+	// Storing the result in the texel
+	shadowMap.x = 0.5 * shadowDepth / _TerrainHeight; // * 0.5 / _TerrainHeight is because texel data is stored as unorm (this remains from when the color format was unorm but now is sfloat and this could be removed)
 	shadowMap.y = length(step_uv - uv); // for cumulative ray marching
 	shadowMap.z = num_steps;
 	shadowMap.w = shadow_at_step;
@@ -237,8 +246,12 @@ vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
 	return shadowMap;
 }
 
-vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
+vec3 fbm_sample_to_world_space(in vec2 uv)
 {
+	// Sampling the precomputed fbm texture
+	vec3 fbm_unorm = texture(fbmmap, uv).xyz; // values in 0 ; 1
+	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
+	
 	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
 	// to 0.5 * _MeshSize * vec3(1, 0, 1)
 	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5); // code copied from other shaders
@@ -248,15 +261,6 @@ vec3 fbm_sample_to_world_space(in vec2 uv, in vec3 fbm)
 	pos.y += _TerrainHeight * fbm.x + _TerrainHeight - _Offset.y; // copied from vertex shader
 	
 	return pos;
-}
-
-vec3 fbm_sample_to_world_space(in vec2 uv)
-{
-	// Sampling the precomputed fbm texture
-	vec3 fbm_unorm = texture(fbmmap, uv).xyz; // values in 0 ; 1
-	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
-	
-	return fbm_sample_to_world_space(uv, fbm);
 }
 
 vec4 shadowmap_bilinear_sample(in vec2 uv)
@@ -271,8 +275,6 @@ vec4 shadowmap_bilinear_sample(in vec2 uv)
 	
 	return mix(mix(a, b, uv.x), mix(c, d, uv.x), uv.y);
 }
-
-
 
 vec2 uv_shadowmap_to_terrain(in vec2 uv)
 {
@@ -299,9 +301,8 @@ vec2 uv_shadowmap_to_terrain(in vec2 uv)
 vec2 uv_terrain_to_shadowmap(in vec2 uv)
 {
 	vec2 l = normalize(_LightDirection.xz);
-	float nl = dot(l, l);
-	float cos_theta = l.y / nl;
-	float sin_theta =  - (-l.x / nl);
+	float cos_theta = l.y;
+	float sin_theta =  - -l.x;
 	
 	float theta = -atan(l.x, l.y);
 	float phi = PI / 4.0 - mod(theta, PI / 2.0);

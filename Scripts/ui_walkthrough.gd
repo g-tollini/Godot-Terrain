@@ -77,7 +77,7 @@ func _process(delta):
 		previous_step = current_step
 		
 	if display_shadowmap && terrain_script.lighting_changed:
-		terrain_script.read_back_shadowmap_data()
+		terrain_script.shadowmap_texture_gpu_readback()
 		tex_rect.texture = ImageTexture.create_from_image(terrain_script.shadowmap_image)
 	
 func _previous():
@@ -99,7 +99,9 @@ func _on_step_changed():
 	
 func _step_1():
 	title.text = "Welcome"
-	description.text = "This UI is for you to play with the parameters of the stuff implemented. You can stick to this page to experiment on your own, or move to the next steps for a guided walkthrough."
+	description.text = "This UI is for you to play with the parameters of the stuff implemented. You can stick to this page to experiment on your own, or move to the next steps for a guided walkthrough.
+	
+If you use fragment ray marching along with fbm texture sampling in the fragment shader, the texture will also be sampled for the raymarching (not just for terrain height / normals info), and will produce artifacts."
 	
 	# Lighting
 	terrain_script.rotate_light_source = false
@@ -210,14 +212,9 @@ func _step_1():
 	var slider_soft_shadows = create_named_slider("Soft shadows", 0, 1, terrain_script.soft_shadows, "", func(value : float): terrain_script.soft_shadows = value)
 	step_specifics_container.add_child(slider_soft_shadows)
 	
-	var heatmap_toggle = create_named_toggle("Raymarching number of steps heatmap", terrain_script.steps_heatmap, func(value:bool): terrain_script.steps_heatmap = value)
-	step_specifics_container.add_child(heatmap_toggle)
-	
 	_raymarching_specifics()
 	
-	var slider_f = create_named_slider("Max steps fraction", 0, 1, terrain_script.cumulative_steps_ratio, "", func(value : float): terrain_script.cumulative_steps_ratio = value)
-	step_specifics_container.add_child(slider_f)
-	
+
 func _step_2():
 	title.text = "Starting point"
 	description.text = "Setting the compositor effect parameters to the same values as in the original code to start from a familiar place.
@@ -580,6 +577,9 @@ func _raymarching_specifics():
 	
 	var slider_max_steps = create_named_slider("Raymarching max steps", 0, 100, terrain_script.max_step_count, "", func(value : float): terrain_script.max_step_count = int(value))
 	step_specifics_container.add_child(slider_max_steps)
+	
+	var slider_f = create_named_slider("Cumulative max steps fraction", 0, 1, terrain_script.cumulative_steps_ratio, "", func(value : float): terrain_script.cumulative_steps_ratio = value)
+	step_specifics_container.add_child(slider_f)
 	
 	var slider_min_step_size = create_named_slider("Raymarching min step size", 0, 10, terrain_script.min_step_size, "", func(value : float): terrain_script.min_step_size = value)
 	step_specifics_container.add_child(slider_min_step_size)
