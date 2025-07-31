@@ -64,7 +64,8 @@ static func ComputeFbmMap(
 static func ComputeShadowMap(
 	# Compute rendering device
 	local_rd : RenderingDevice,
-	heightmap_compute_shader : RID,
+	shadowmap_compute_shader : RID,
+	rotated_technique : bool,
 	fbm_compute_rdtex : RID,
 	fbm_texture_width : int,
 	heightmap_compute_rdtex : RID,
@@ -108,14 +109,20 @@ static func ComputeShadowMap(
 	heightmap_uniform.binding = 2
 	heightmap_uniform.add_id(heightmap_compute_rdtex)
 
-	var compute_shadowmap_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform, heightmap_uniform], heightmap_compute_shader, 0)
-	var compute_shadowmap_pipeline = local_rd.compute_pipeline_create(heightmap_compute_shader)
+	var compute_shadowmap_uniform_set = local_rd.uniform_set_create([uniform, fbm_uniform, heightmap_uniform], shadowmap_compute_shader, 0)
+	var compute_shadowmap_pipeline = local_rd.compute_pipeline_create(shadowmap_compute_shader)
 	
 	var compute_list := local_rd.compute_list_begin()
 	local_rd.compute_list_bind_compute_pipeline(compute_list, compute_shadowmap_pipeline)
 	local_rd.compute_list_bind_uniform_set(compute_list, compute_shadowmap_uniform_set, 0)
 	
-	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / 1, fbm_texture_width / 512, 1)
+	var thread_group_size_x = 8
+	var thread_group_size_y = 8
+	if rotated_technique:
+		thread_group_size_x = 1
+		thread_group_size_y = 512
+			
+	local_rd.compute_list_dispatch(compute_list, fbm_texture_width / thread_group_size_x, fbm_texture_width / thread_group_size_y, 1)
 	local_rd.compute_list_end()
 
 	local_rd.submit()

@@ -171,6 +171,10 @@ var high_slope_texture_copied_to_gpu : RID
 
 # Compute render revice
 var compute_rd : RenderingDevice
+var fbm_compute_shader : RID
+var shadowmap_compute_shader_rotated_technique : bool = false
+var shadowmap_compute_shader : RID
+var rotated_shadowmap_propagation_compute_shader : RID
 var p_uniform_compute_buffer : RID # compute_rd version of p_uniform_buffer
 var geometry_buffer_hash : int = 0 # for detecting value updates affecting geometry
 var lighting_buffer_hash : int = 0 # for detecting value updates affecting lighting
@@ -271,8 +275,8 @@ func init_gpu():
 			fbm_tex_format.height,
 			fbm_tex_format.depth,
 			fbm_tex_format.array_layers)
-
-func compute_fbm(buffer : Array):
+			
+	# Compute shaders
 	# Fbm compute shader
 	var shader_path = "res://Scripts/Shaders/compute_fbm.glsl"
 	var shader_file = load(shader_path)
@@ -281,25 +285,39 @@ func compute_fbm(buffer : Array):
 		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
 
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	var fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	fbm_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
 	
+	# Shadowmap compute shaders
+	shader_path = "res://Scripts/Shaders/compute_shadowmap.glsl"
+	shader_file = load(shader_path)
+	
+	if shader_file.get_class() != "RDShaderFile":
+		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+
+	shader_spirv = shader_file.get_spirv()
+	shadowmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	
+	shader_path = "res://Scripts/Shaders/compute_rotated_shadowmap_propagation.glsl"
+	shader_file = load(shader_path)
+	
+	if shader_file.get_class() != "RDShaderFile":
+		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
+
+	shader_spirv = shader_file.get_spirv()
+	rotated_shadowmap_propagation_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
+	
+
+func compute_fbm(buffer : Array):	
 	fbm_image_up_to_date = false
 	current_mip = 0
 	
 	ComputeUtils.ComputeFbmMap(rd, fbm_render_rdtex, compute_rd, fbm_compute_shader, fbm_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer, use_imported_fbm, import_fbm)
 
 func compute_shadowmap(buffer : Array):
-	# heightmap compute shader
-	var shader_path = "res://Scripts/Shaders/compute_shadowmap.glsl"
-	var shader_file = load(shader_path)
+	var rotated_technique = shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation
+	var compute_shader = rotated_shadowmap_propagation_compute_shader if rotated_technique else shadowmap_compute_shader
 	
-	if shader_file.get_class() != "RDShaderFile":
-		push_error(shader_path + " shader file was imported as text file. This means the shader had an error and could not be compiled at startup. You need to fix the shader and open it in the shader editor window or the error won't go away")
-
-	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	var heightmap_compute_shader = compute_rd.shader_create_from_spirv(shader_spirv)
-	
-	ComputeUtils.ComputeShadowMap(compute_rd, heightmap_compute_shader, 
+	ComputeUtils.ComputeShadowMap(compute_rd, compute_shader, rotated_technique,
 	fbm_compute_rdtex, fbm_texture_width, shadowmap_compute_rdtex, fbm_texture_width, p_uniform_compute_buffer)
 
 func compute_maximum_mipmap():
@@ -539,7 +557,7 @@ func _render_callback(_effect_callback_type : int, render_data : RenderData):
 	
 	fragment_shadows = shadow_technique == ShadowTechnique.Fragment_Raymarching || shadow_technique == ShadowTechnique.Fragment_Raymarching
 	cumulative_shadows = shadow_technique == ShadowTechnique.Shadowmap_Cumulative_Raymarching
-	shadow_propagation = shadow_technique == ShadowTechnique.Shadowmap_Propagation || shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation
+	shadow_propagation = shadow_technique == ShadowTechnique.Shadowmap_Propagation || shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation	
 	rotate_shadowmap_towards_light = rotate_shadowmap_towards_light || (shadow_technique == ShadowTechnique.Rotated_Shadowmap_Propagation)
 	rotate_shadowmap_towards_light = rotate_shadowmap_towards_light &&shadow_technique != ShadowTechnique.Shadowmap_Propagation
 		

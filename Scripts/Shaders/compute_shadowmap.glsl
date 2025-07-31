@@ -51,17 +51,15 @@ layout(set = 0, binding = 0, std140) uniform UniformBufferObject {
 };
 
 #define PI 3.141592653589793238462
-#define THREAD_GROUP_SIZE_Y 512
 
 layout(set = 0, binding = 1) uniform sampler2D fbmmap;
 layout(set = 0, binding = 2, rgba16f) restrict uniform image2D shadowmap;
 
 // Thread groups size
-layout(local_size_x = 1, local_size_y = THREAD_GROUP_SIZE_Y, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // Two techniques for computing shadow height. The functions return the shadow height for texel xy
-vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm);
-vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv);
+vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv);
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv);
 
 // Samples fbm texture and returns point coordinates in world space
@@ -72,8 +70,6 @@ vec4 shadowmap_bilinear_sample(in vec2 uv);
 vec2 uv_shadowmap_to_terrain(in vec2 uv);
 vec2 uv_terrain_to_shadowmap(in vec2 uv);
 
-shared float line_cache[THREAD_GROUP_SIZE_Y];
-
 void main()
 {
 	ivec2 dimensions = imageSize(shadowmap);
@@ -81,28 +77,12 @@ void main()
 
 	vec2 uv = vec2(xy) / (vec2(dimensions) - vec2(1));
 	
-	// Sampling fbm texture
-	// vertices positions range from 0.5 * _MeshSize * vec3(-1, 0, -1)
-	// to 0.5 * _MeshSize * vec3(1, 0, 1)
-	vec3 pos = _MeshSize * vec3(uv.x - 0.5, 0, uv.y - 0.5);
-	vec3 noise_pos = (pos + vec3(_Offset.x, 0, _Offset.z)) / _Scale;
-
-	// Sampling the precomputed fbm texture
-	vec3 fbm_unorm = texture(fbmmap, uv).xyz; // values in 0 ; 1
-	vec3 fbm = 2 * (fbm_unorm - vec3(0.5)); // values in -1 ; 1
-	float height = fbm.x;
-	
 	float shadowDepth = 0;
 	vec4 shadowMap = vec4(0);
 	
 	if (_RotateShadowMapTowardsLight)
 	{
 		uv = uv_shadowmap_to_terrain(uv);
-		if (_ShadowPropagation)
-		{
-			int y = int(gl_LocalInvocationID.y);
-			line_cache[y] = 0;
-		}
 	}
 	
 	if (any(greaterThanEqual(uv, vec2(1))) ||
@@ -112,10 +92,7 @@ void main()
 	}
 	else if (_ShadowPropagation)
 	{
-		if (_RotateShadowMapTowardsLight)
-			shadowMap = rotated_shadowmap_height_propagation(xy, dimensions, uv);
-		else
-			shadowMap = shadow_propagation(xy, dimensions, uv, fbm);
+		shadowMap = shadow_propagation(xy, dimensions, uv);
 	}
 	else
 	{
@@ -125,7 +102,7 @@ void main()
 	imageStore(shadowmap, xy, shadowMap);
 }
 
-vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fbm)
+vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
 {
 	vec2 towards_light = _LightDirection.xz;
 	float abs_x = abs(towards_light.x);
@@ -169,7 +146,7 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 	
 	float neighbors_shadowDepth_unorm = mix(shadow_sample_1.r, shadow_sample_2.r, sample_1_weight);
 	float neighbors_shadowHeight_unorm = mix(fbm_sample_1.r , fbm_sample_2.r, sample_1_weight) + neighbors_shadowDepth_unorm;
-	float height_unorm = 0.5 * (fbm.x + 1);
+	float height_unorm = texture(fbmmap, uv).x;
 	
 	float shadowDepth = max(0, 2 * (neighbors_shadowHeight_unorm - height_unorm) * _TerrainHeight - decay);
 	float shadowDepth_unorm = 0.5 * shadowDepth / _TerrainHeight;
@@ -183,52 +160,6 @@ vec4 shadow_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv, in vec3 fb
 		shadowMap.z = clamp(0, 1, max(shadow_sample_1.z, shadow_sample_2.z) + 1.0 / _ShadowMaxStepCount);
 	
 	return shadowMap;
-}
-
-vec4 rotated_shadowmap_height_propagation(in ivec2 xy, in ivec2 dimensions, in vec2 uv)
-{
-	int y = int(gl_LocalInvocationID.y);
-	vec2 terrain_uv = uv;
-	float terrain_height_unorm = texture(fbmmap, terrain_uv).x;
-	float shadow_height_unorm = terrain_height_unorm;
-	
-	vec2 l = normalize(_LightDirection.xz);
-	float nl = dot(l, l);
-	float cos_theta = l.y / nl;
-	float sin_theta = - (-l.x / nl);
-	
-	float theta = -atan(l.x, l.y);
-	float phi = PI / 4.0 - mod(theta, PI / 2.0);
-	float a_p = sqrt(2) * cos(phi);
-	float decay_unorm = 0.5 * _LightDirection.y * _MeshSize / float(dimensions.y) * a_p / _TerrainHeight;
-	
-	line_cache[y] = shadow_height_unorm;
-	memoryBarrierShared();
-	barrier();
-	
-	int max_steps = min(int(ceil(log2(THREAD_GROUP_SIZE_Y))), int(_ShadowMaxStepCount));
-	
-	int step_size_y = 1;
-	int step = 0;
-	int shadow_at_step = 0;
-	
-	while (step < max_steps)
-	{
-		float towards_light_shadow_height_unorm = line_cache[min(y + step_size_y, THREAD_GROUP_SIZE_Y - 1)];
-		if (towards_light_shadow_height_unorm - step_size_y * decay_unorm > shadow_height_unorm)
-		{
-			shadow_height_unorm = towards_light_shadow_height_unorm - step_size_y * decay_unorm;
-			shadow_at_step = step;
-		}
-		
-		line_cache[y] = shadow_height_unorm;
-		memoryBarrierShared();
-		barrier();
-		step_size_y = 2 * step_size_y + 1;
-		step++;
-	}
-	
-	return vec4(shadow_height_unorm - terrain_height_unorm, 0, float(shadow_at_step) / float(_ShadowMaxStepCount), 0);
 }
 
 vec4 shadow_ray_marching(in ivec2 xy, in vec2 uv)
