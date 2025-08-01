@@ -124,6 +124,8 @@ If you use fragment ray marching along with fbm texture sampling in the fragment
 	terrain_script.stop_on_hit = false
 	terrain_script.steps_heatmap = false
 	
+	_roll_terrain_relief()
+	_roll_terrain_slopes()
 	_roll_terrain_colors()
 	
 	_terrain_specifics()
